@@ -10,6 +10,8 @@ import { SelectSetting } from './settings/SelectSetting.js';
 import { SettingAction } from './settings/SettingAction.js';
 import { TextSetting } from './settings/TextSetting.js';
 
+const EXTENSION_URL = new URL('../', import.meta.url);
+
 export class Settings {
     /**@type {boolean} */ isEnabled = groupId ? true : false;
     /**@type {string} */ actionQrSet = null;
@@ -28,13 +30,14 @@ export class Settings {
 
 
     /**@type {()=>void} */ onRestart;
+    /**@type {()=>void} */ onUpdate;
 
 
     /**@type {HTMLElement}*/ dom;
     /**@type {HTMLElement}*/ parent;
 
-    constructor() {
-        Object.assign(this, chat_metadata.triggerCards ?? {});
+    constructor(initialData = {}) {
+        Object.assign(this, initialData ?? {});
         this.registerSettings();
         this.init();
     }
@@ -213,14 +216,17 @@ export class Settings {
     }
 
     save(isRestart = false) {
+        chat_metadata.triggerCards = this.toJSON();
         saveMetadataDebounced();
         if (isRestart) {
             this.onRestart?.();
+        } else {
+            this.onUpdate?.();
         }
     }
 
     async init() {
-        const response = await fetch('/scripts/extensions/third-party/SillyTavern-TriggerCards/html/settings.html');
+        const response = await fetch(new URL('html/settings.html', EXTENSION_URL));
         if (!response.ok) {
             return console.warn('failed to fetch template: sttc--settings.html');
         }

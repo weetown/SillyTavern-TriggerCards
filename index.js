@@ -1,15 +1,18 @@
 import { characters, chat_metadata, eventSource, event_types, getRequestHeaders, reloadMarkdownProcessor, sendSystemMessage } from '../../../../script.js';
-import { getContext, saveMetadataDebounced, renderExtensionTemplateAsync } from '../../../extensions.js';
+import { getContext, renderExtensionTemplateAsync } from '../../../extensions.js';
 import { executeSlashCommands, executeSlashCommandsWithOptions, registerSlashCommand } from '../../../slash-commands.js';
 import { SlashCommand } from '../../../slash-commands/SlashCommand.js';
 import { ARGUMENT_TYPE, SlashCommandArgument, SlashCommandNamedArgument } from '../../../slash-commands/SlashCommandArgument.js';
 import { SlashCommandEnumValue } from '../../../slash-commands/SlashCommandEnumValue.js';
 import { SlashCommandParser } from '../../../slash-commands/SlashCommandParser.js';
-import { debounce, delay } from '../../../utils.js';
+import { debounce } from '../../../utils.js';
 import { quickReplyApi } from '../../quick-reply/index.js';
 import { Settings } from './src/Settings.js';
 
-const log = (...msg) => console.log('[TC]', ...msg);
+const EXTENSION_URL = new URL('.', import.meta.url);
+const EXTENSION_PATH = EXTENSION_URL.pathname;
+const EXTENSION_RELATIVE_PATH = EXTENSION_PATH.split('/scripts/extensions/')[1]?.replace(/\/$/, '') ?? 'third-party/SillyTavern-TriggerCards';
+const EXTENSION_README_URL = new URL('README.md', EXTENSION_URL).href;
 
 
 
@@ -17,18 +20,29 @@ const log = (...msg) => console.log('[TC]', ...msg);
 
 /**@type {Settings} */
 let settings;
-/**@type {Promise} */
-let loop;
 /**@type {Boolean} */
 let isRunning = false;
 /**@type {string} */
 export let groupId;
 /**@type {HTMLElement} */
 let root;
-/**@type {HTMLImageElement[]} */
-let imgs = [];
-/**@type {Object[]} */
-let nameList = [];
+/**@type {Map<string, HTMLImageElement>} */
+const imgsByName = new Map();
+/**@type {Set<string>} */
+let nameList = new Set();
+const imageCache = new Map();
+const memberState = {
+    lastExpression: null,
+    lastExtensionsKey: '',
+    lastCostumesKey: '',
+    lastPresentKey: '',
+    lastMutedKey: '',
+};
+const pollState = {
+    timer: null,
+    delay: 2000,
+};
+let updateChain = Promise.resolve();
 
 /** Bottom-bar Extensions (wand) menu + main Extensions panel integration **/
 const STTC_IDS = {
@@ -65,7 +79,7 @@ const addWandMenuUi = () => {
 
 const addExtensionsPanelUi = async () => {
     try {
-        const settingsHtml = await renderExtensionTemplateAsync('third-party/SillyTavern-TriggerCards', 'settings');
+        const settingsHtml = await renderExtensionTemplateAsync(EXTENSION_RELATIVE_PATH, 'settings');
         const container = document.getElementById(STTC_IDS.panelContainer) ?? document.getElementById('extensions_settings');
         if (!container) return;
 
@@ -87,7 +101,7 @@ const addExtensionsPanelUi = async () => {
             try {
                 if (!settings) return;
                 settings.isEnabled = evt.target.checked;
-                saveMetadataDebounced();
+                settings.save();
                 if (settings.isEnabled) {
                     await restart();
                 } else {
@@ -120,9 +134,10 @@ const syncExtensionsPanelUi = () => {
 
 
 const loadSettings = ()=>{
-    settings = new Settings();
+    settings = new Settings(chat_metadata.triggerCards ?? {});
     settings.onRestart = ()=>restartDebounced();
-    chat_metadata.triggerCards = settings;
+    settings.onUpdate = ()=>scheduleUpdate({ immediate: true });
+    chat_metadata.triggerCards = settings.toJSON();
 };
 const init = ()=>{
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({ name: 'tc-config',
@@ -213,11 +228,11 @@ const activate = async(args, members) => {
     const extList = args.extensions?.split(',')?.filter(it=>it);
     let gray;
     try {
-        gray = JSON.parse(args.gray ?? args.grey ?? 'null');
+        gray = JSON.parse(args.grayscale ?? 'null');
     } catch { /* empty */ }
     let mute;
     try {
-        mute = JSON.parse(args.mute ?? args.grey ?? 'null');
+        mute = JSON.parse(args.mute ?? 'null');
     } catch { /* empty */ }
     settings.actionQrSet = args.actions ?? (args.reset ? undefined : settings.actionQrSet);
     settings.memberQrSet = args.members ?? (args.reset ? undefined : settings.memberQrSet);
@@ -229,8 +244,7 @@ const activate = async(args, members) => {
     settings.grayscale = gray ?? (args.reset ? true : settings.grayscale) ?? true;
     settings.mute = mute ?? (args.reset ? true : settings.mute) ?? true;
     settings.isEnabled = true;
-    saveMetadataDebounced();
-    restart();
+    settings.save(true);
     let wasActive = settings.isActive;
     if (wasActive) {
         settings.hide();
@@ -243,7 +257,7 @@ const activate = async(args, members) => {
 };
 const deactivate = async () => {
     settings.isEnabled = false;
-    saveMetadataDebounced();
+    settings.save();
     await end();
     let wasActive = settings.isActive;
     if (wasActive) {
@@ -257,8 +271,8 @@ const deactivate = async () => {
 };
 const showHelp = async () => {
     const converter = reloadMarkdownProcessor();
-    const readme = await (await fetch('/scripts/extensions/third-party/SillyTavern-TriggerCards/README.md')).text();
-    sendSystemMessage('generic', converter.makeHtml(readme).replace(/(src=")(?=[^/])/g, '$1/scripts/extensions/third-party/SillyTavern-TriggerCards/'));
+    const readme = await (await fetch(EXTENSION_README_URL)).text();
+    sendSystemMessage('generic', converter.makeHtml(readme).replace(/(src=")(?=[^/])/g, `$1${EXTENSION_PATH}`));
 };
 
 
@@ -389,8 +403,8 @@ const handleContext = async(evt, fullName, wrap) => {
                         blocker.remove();
                         wrap.classList.remove('sttc--hover');
                         executeSlashCommandsWithOptions(`/costume ${costume}`);
-                        saveMetadataDebounced();
-                        restart();
+                        settings.save();
+                        scheduleUpdate({ immediate: true, forceImages: true });
                     });
                     const img = document.createElement('img'); {
                         img.src = url;
@@ -466,7 +480,15 @@ const getMuted = ()=>{
     const names = members.map(it=>it.name);
     return names;
 };
-const findImage = async(name) => {
+const getExtensionsKey = () => (settings?.extensions ?? []).join(',');
+const getNamePart = (fullName) => fullName.split('::')[0];
+const getCostumeName = (fullName) => settings.costumes?.[getNamePart(fullName)] ?? getNamePart(fullName);
+const resolveImageUrl = async (name) => {
+    const cacheKey = `${name}::${settings.expression}::${getExtensionsKey()}`;
+    if (imageCache.has(cacheKey)) {
+        return imageCache.get(cacheKey);
+    }
+    let foundUrl = null;
     for (const ext of settings.extensions) {
         const url = `/characters/${name}/${settings.expression}.${ext}`;
         const resp = await fetch(url, {
@@ -474,75 +496,167 @@ const findImage = async(name) => {
             headers: getRequestHeaders(),
         });
         if (resp.ok) {
-            return url;
+            foundUrl = url;
+            break;
+        }
+    }
+    imageCache.set(cacheKey, foundUrl);
+    return foundUrl;
+};
+const updateCardImage = async (name, img) => {
+    const target = getCostumeName(name);
+    const imageKey = `${target}::${settings.expression}::${getExtensionsKey()}`;
+    if (img.dataset.imageKey === imageKey) {
+        return false;
+    }
+    img.dataset.imageKey = imageKey;
+    const url = await resolveImageUrl(target);
+    if (url) {
+        img.src = url;
+    }
+    return true;
+};
+const updateCardState = (name, presentSet, mutedSet) => {
+    const img = imgsByName.get(name);
+    if (!img) return false;
+    let changed = false;
+    const wrap = img.closest('.sttc--wrapper');
+    const isPresent = presentSet.has(name);
+    const isMuted = mutedSet.has(name);
+    if (settings.grayscale && !isPresent) {
+        changed = changed || !wrap.classList.contains('sttc--absent');
+        wrap.classList.add('sttc--absent');
+    } else {
+        changed = changed || wrap.classList.contains('sttc--absent');
+        wrap.classList.remove('sttc--absent');
+    }
+    if (settings.mute && !isMuted) {
+        changed = changed || !wrap.classList.contains('sttc--chatty');
+        wrap.classList.add('sttc--chatty');
+    } else {
+        changed = changed || wrap.classList.contains('sttc--chatty');
+        wrap.classList.remove('sttc--chatty');
+    }
+    return changed;
+};
+const addCard = async (name) => {
+    const namePart = getNamePart(name);
+    if (settings.costumes?.[namePart]) {
+        executeSlashCommandsWithOptions(`/costume ${settings.costumes[namePart]}`);
+    }
+    const wrap = document.createElement('div'); {
+        wrap.classList.add('sttc--wrapper');
+        wrap.addEventListener('click', (evt)=>handleClick(evt, name));
+        wrap.addEventListener('contextmenu', (evt)=>handleContext(evt, name, wrap));
+        wrap.addEventListener('pointerenter', ()=>handleTitle(wrap, name));
+        const img = document.createElement('img'); {
+            img.classList.add('sttc--img');
+            img.setAttribute('data-character', name);
+            const url = await resolveImageUrl(settings.costumes?.[namePart] ?? namePart);
+            if (url) {
+                img.src = url;
+            }
+            wrap.append(img);
+            imgsByName.set(name, img);
+        }
+        const existing = [...imgsByName.keys()];
+        const beforeName = existing.find(it=>name.localeCompare(it) == -1);
+        if (beforeName) {
+            const before = imgsByName.get(beforeName);
+            before.closest('.sttc--wrapper').insertAdjacentElement('beforebegin', wrap);
+        } else {
+            root.append(wrap);
         }
     }
 };
-const updateMembers = async() => {
-    let expression;
-    let extensions;
-    while (settings?.isEnabled && isRunning) {
-        const names = getNames();
-        const present = getNames(true);
-        const muted = getMuted();
-        // [1,2,3,4,5,6,7,8].forEach(it=>names.push(...members.map(x=>x.name)));
-        const removed = nameList.filter(it=>names.indexOf(it) == -1);
-        const added = names.filter(it=>nameList.indexOf(it) == -1);
-        for (const name of removed) {
-            nameList.splice(nameList.indexOf(name), 1);
-            let idx = imgs.findIndex(it=>it.getAttribute('data-character') == name);
-            const img = imgs.splice(idx, 1)[0];
-            img.remove();
+const removeCard = (name) => {
+    const img = imgsByName.get(name);
+    if (!img) return;
+    img.closest('.sttc--wrapper')?.remove();
+    imgsByName.delete(name);
+};
+const syncMembers = async ({ forceImages = false } = {}) => {
+    if (!settings?.isEnabled || !isRunning) return false;
+    const names = getNames();
+    const present = new Set(getNames(true));
+    const muted = new Set(getMuted());
+    const namesSet = new Set(names);
+    let changed = false;
+
+    for (const existing of nameList) {
+        if (!namesSet.has(existing)) {
+            removeCard(existing);
+            changed = true;
         }
-        for (const name of added) {
-            const namePart = name.split('::')[0];
-            if (settings.costumes?.[namePart]) {
-                executeSlashCommandsWithOptions(`/costume ${settings.costumes[namePart]}`);
-            }
-            nameList.push(name);
-            const wrap = document.createElement('div'); {
-                wrap.classList.add('sttc--wrapper');
-                wrap.addEventListener('click', (evt)=>handleClick(evt, name));
-                wrap.addEventListener('contextmenu', (evt)=>handleContext(evt, name, wrap));
-                wrap.addEventListener('pointerenter', ()=>handleTitle(wrap, name));
-                const img = document.createElement('img'); {
-                    img.classList.add('sttc--img');
-                    img.setAttribute('data-character', name);
-                    img.src = await findImage(settings.costumes?.[namePart] ?? namePart);
-                    wrap.append(img);
-                }
-                const before = imgs.find(it=>name.localeCompare(it.getAttribute('data-character')) == -1);
-                if (before) {
-                    log('putting', name, 'before', before);
-                    before.closest('.sttc--wrapper').insertAdjacentElement('beforebegin', wrap);
-                    imgs.splice(imgs.indexOf(before), 0, img);
-                } else {
-                    log('putting', name, 'at end');
-                    root.append(wrap);
-                    imgs.push(img);
-                }
-            }
-        }
-        imgs.forEach(async(img)=>{
-            if (settings.grayscale && present.indexOf(img.getAttribute('data-character')) == -1) {
-                img.closest('.sttc--wrapper').classList.add('sttc--absent');
-            } else {
-                img.closest('.sttc--wrapper').classList.remove('sttc--absent');
-            }
-            if (settings.mute && muted.indexOf(img.getAttribute('data-character')) == -1) {
-                img.closest('.sttc--wrapper').classList.add('sttc--chatty');
-            } else {
-                img.closest('.sttc--wrapper').classList.remove('sttc--chatty');
-            }
-            if (expression != settings.expression || extensions != settings.extensions.join(', ')) {
-                const namePart = img.getAttribute('data-character').split('::')[0];
-                img.src = await findImage(settings.costumes?.[namePart] ?? namePart);
-            }
-        });
-        expression = settings.expression;
-        extensions = settings.extensions.join(', ');
-        await delay(500);
     }
+
+    for (const name of names) {
+        if (!nameList.has(name)) {
+            await addCard(name);
+            changed = true;
+        }
+    }
+
+    const presentKey = [...present].join('|');
+    const mutedKey = [...muted].join('|');
+    const presenceChanged = presentKey !== memberState.lastPresentKey;
+    const mutedChanged = mutedKey !== memberState.lastMutedKey;
+    if (presenceChanged || mutedChanged) {
+        for (const name of namesSet) {
+            changed = updateCardState(name, present, muted) || changed;
+        }
+    }
+
+    const extensionsKey = getExtensionsKey();
+    const costumesKey = JSON.stringify(settings.costumes ?? {});
+    const imageSettingsChanged = settings.expression !== memberState.lastExpression
+        || extensionsKey !== memberState.lastExtensionsKey
+        || costumesKey !== memberState.lastCostumesKey
+        || forceImages;
+    if (imageSettingsChanged) {
+        for (const name of namesSet) {
+            const img = imgsByName.get(name);
+            if (!img) continue;
+            changed = (await updateCardImage(name, img)) || changed;
+        }
+    }
+
+    nameList = namesSet;
+    memberState.lastPresentKey = presentKey;
+    memberState.lastMutedKey = mutedKey;
+    memberState.lastExpression = settings.expression;
+    memberState.lastExtensionsKey = extensionsKey;
+    memberState.lastCostumesKey = costumesKey;
+    return changed;
+};
+const queueUpdate = (options = {}) => {
+    updateChain = updateChain
+        .then(() => syncMembers(options))
+        .catch((ex) => console.warn('[TC] Update failed', ex));
+    return updateChain;
+};
+const schedulePoll = (delay = pollState.delay) => {
+    if (!isRunning || !settings?.isEnabled) return;
+    clearTimeout(pollState.timer);
+    pollState.timer = setTimeout(async () => {
+        const changed = await queueUpdate();
+        if (changed) {
+            pollState.delay = 2000;
+        } else {
+            pollState.delay = Math.min(Math.round(pollState.delay * 1.5), 10000);
+        }
+        schedulePoll(pollState.delay);
+    }, delay);
+};
+const scheduleUpdate = ({ immediate = false, forceImages = false } = {}) => {
+    if (!isRunning || !settings?.isEnabled) return;
+    clearTimeout(pollState.timer);
+    const delay = immediate ? 0 : 250;
+    pollState.timer = setTimeout(async () => {
+        await queueUpdate({ forceImages });
+        pollState.delay = 2000;
+        schedulePoll();
+    }, delay);
 };
 
 
@@ -556,28 +670,39 @@ const restart = async()=>{
 };
 const restartDebounced = debounce(restart);
 const start = () => {
-    document.querySelector('#form_sheld').style.position = 'relative';
+    const form = document.querySelector('#form_sheld');
+    if (!form) return;
+    nameList = new Set();
+    imageCache.clear();
+    memberState.lastExpression = null;
+    memberState.lastExtensionsKey = '';
+    memberState.lastCostumesKey = '';
+    memberState.lastPresentKey = '';
+    memberState.lastMutedKey = '';
+    form.style.position = 'relative';
     root = document.createElement('div'); {
         root.classList.add('sttc--root');
         root.addEventListener('wheel', evt=>{
             evt.preventDefault();
             root.scrollLeft += evt.deltaY;
         });
-        document.querySelector('#form_sheld').append(root);
+        form.append(root);
     }
     isRunning = true;
-    loop = updateMembers();
+    pollState.delay = 2000;
+    queueUpdate({ forceImages: true });
+    schedulePoll();
 };
 const end = async () => {
     isRunning = false;
-    if (loop) await loop;
-    nameList = [];
+    clearTimeout(pollState.timer);
+    pollState.timer = null;
+    nameList = new Set();
     root?.remove();
     root = null;
-    document.querySelector('#form_sheld').style.position = '';
-    while (imgs.length > 0) {
-        imgs.pop();
-    }
+    const form = document.querySelector('#form_sheld');
+    if (form) form.style.position = '';
+    imgsByName.clear();
 };
 
 /**
