@@ -464,14 +464,30 @@ const handleContext = async(evt, fullName, wrap) => {
     const blocker = document.createElement('div'); {
         blocker.classList.add('sttc--blocker');
 
+        // Close helper (cleans up listeners + UI state)
+        const onKeyDown = (e) => {
+            if (e.key === 'Escape') close();
+        };
+
+        const close = () => {
+            try { document.removeEventListener('keydown', onKeyDown, true); } catch { /* ignore */ }
+            blocker.remove();
+            wrap.classList.remove('sttc--hover');
+        };
+
+        // Click outside to close (only if clicking the overlay itself)
+        blocker.addEventListener('mousedown', (e) => {
+            if (e.target === blocker) close();
+        });
+
+        // Escape to close
+        document.addEventListener('keydown', onKeyDown, true);
+
         const clone = /**@type {HTMLElement}*/(wrap.cloneNode(true)); {
             clone.title = 'Close menu';
             clone.style.top = `${rect.top}px`;
             clone.style.left = `${rect.left}px`;
-            clone.addEventListener('click', ()=>{
-                blocker.remove();
-                wrap.classList.remove('sttc--hover');
-            });
+            clone.addEventListener('click', close);
             blocker.append(clone);
         }
 
@@ -479,7 +495,41 @@ const handleContext = async(evt, fullName, wrap) => {
             content.classList.add('sttc--content');
             content.style.bottom = `calc(100vh - ${rect.top}px - 2em)`;
 
-            // Costumes plugin preview probing (temporary, until moved to ST's built-in /costume workflow)
+            // Header row with a big X button
+            const header = document.createElement('div'); {
+                header.classList.add('sttc--content-header');
+
+                const title = document.createElement('div'); {
+                    title.classList.add('sttc--content-title');
+                    title.textContent = 'Costumes';
+                    header.append(title);
+                }
+
+                const xBtn = document.createElement('button'); {
+                    xBtn.classList.add('sttc--close');
+                    xBtn.type = 'button';
+                    xBtn.title = 'Close';
+                    xBtn.textContent = '×';
+                    xBtn.addEventListener('click', close);
+                    header.append(xBtn);
+                }
+
+                content.append(header);
+            }
+
+            // No costumes case: show message but still allow close (overlay/esc/X)
+            if (!Array.isArray(costumes) || costumes.length === 0) {
+                const msg = document.createElement('div');
+                msg.classList.add('sttc--empty');
+                msg.textContent = 'No costumes found for this character.';
+                content.append(msg);
+
+                blocker.append(content);
+                document.body.append(blocker);
+                return;
+            }
+
+            // Costumes plugin preview probing (temporary, until moved to ST built-in /costume workflow)
             const urls = await Promise.all(costumes.map(async (costumePath) => {
                 for (const ext of settings.extensions) {
                     const url = `/characters/${costumePath}/${settings.expression}.${ext}`;
@@ -498,8 +548,7 @@ const handleContext = async(evt, fullName, wrap) => {
                     cost.classList.add('sttc--costume');
                     cost.addEventListener('click', ()=>{
                         settings.costumes[fullName] = costume;
-                        blocker.remove();
-                        wrap.classList.remove('sttc--hover');
+                        close(); // uses shared close helper
                         executeSlashCommandsWithOptions(`/costume ${costume}`);
                         saveMetadataDebounced();
 
