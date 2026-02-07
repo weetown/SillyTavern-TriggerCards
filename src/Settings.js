@@ -19,6 +19,7 @@ export class Settings {
     /**@type {string[]} */ extensions = ['png', 'webp', 'gif'];
     /**@type {boolean} */ grayscale = true;
     /**@type {boolean} */ mute = true;
+    /**@type {boolean} */ isCollapsed = false;
     /**@type {{[index:string]:string}} */ costumes = {};
 
     /**@type {BaseSetting[]}*/ settingList = [];
@@ -49,6 +50,7 @@ export class Settings {
             extensions: this.extensions,
             grayscale: this.grayscale,
             mute: this.mute,
+            isCollapsed: this.isCollapsed,
             costumes: this.costumes,
         };
     }
@@ -91,6 +93,7 @@ export class Settings {
                                 extensions: ['png', 'webp', 'gif'],
                                 grayscale: true,
                                 mute: true,
+                                isCollapsed: false,
                                 costumes: {},
                             });
                             this.registerSettings();
@@ -206,6 +209,18 @@ export class Settings {
                 initialValue: this.mute,
                 onChange: (it)=>{
                     this.mute = it.value;
+                    this.save();
+                },
+            }));
+        }
+        { // layout
+            this.settingList.push(CheckboxSetting.fromProps({ id: 'sttc--collapsed',
+                name: 'Start Collapsed',
+                description: 'Collapse the Trigger Cards bar to a small tab in this chat.',
+                category: ['Layout'],
+                initialValue: this.isCollapsed,
+                onChange: (it)=>{
+                    this.isCollapsed = it.value;
                     this.save();
                 },
             }));
