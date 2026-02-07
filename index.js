@@ -1,5 +1,5 @@
 import { characters, chat_metadata, eventSource, event_types, getRequestHeaders, reloadMarkdownProcessor, sendSystemMessage } from '../../../../script.js';
-import { getContext, saveMetadataDebounced } from '../../../extensions.js';
+import { getContext, saveMetadataDebounced, renderExtensionTemplateAsync } from '../../../extensions.js';
 import { executeSlashCommands, executeSlashCommandsWithOptions, registerSlashCommand } from '../../../slash-commands.js';
 import { SlashCommand } from '../../../slash-commands/SlashCommand.js';
 import { ARGUMENT_TYPE, SlashCommandArgument, SlashCommandNamedArgument } from '../../../slash-commands/SlashCommandArgument.js';
@@ -10,6 +10,7 @@ import { quickReplyApi } from '../../quick-reply/index.js';
 import { Settings } from './src/Settings.js';
 
 const log = (...msg) => console.log('[TC]', ...msg);
+
 
 
 
@@ -28,6 +29,92 @@ let root;
 let imgs = [];
 /**@type {Object[]} */
 let nameList = [];
+
+/** Bottom-bar Extensions (wand) menu + main Extensions panel integration **/
+const STTC_IDS = {
+    wandItem: 'sttc-wand-settings-menu-item',
+    wandBtn: 'sttc-wand-settings',
+    panelContainer: 'sttc_container',
+    panelEnabled: 'sttc-enabled-toggle',
+    panelOpen: 'sttc-open-settings',
+    panelStatus: 'sttc-status',
+};
+
+const addWandMenuUi = () => {
+    const container = document.getElementById('extensionsMenu');
+    if (!container) return;
+    if (document.getElementById(STTC_IDS.wandItem)) return;
+
+    const item = document.createElement('div');
+    item.id = STTC_IDS.wandItem;
+    item.className = 'list-group-item flex-container flexGap5';
+    item.title = 'Open Trigger Cards settings';
+    item.innerHTML = `
+        <div id="${STTC_IDS.wandBtn}" class="extensionsMenuExtensionButton fa-solid fa-sliders"></div>
+        Trigger Cards Settings
+    `;
+    item.addEventListener('click', async () => {
+        try {
+            await settings?.show();
+        } catch (ex) {
+            toastr.error(ex?.message ?? String(ex));
+        }
+    });
+    container.append(item);
+};
+
+const addExtensionsPanelUi = async () => {
+    try {
+        const settingsHtml = await renderExtensionTemplateAsync('third-party/SillyTavern-TriggerCards', 'settings');
+        const container = document.getElementById(STTC_IDS.panelContainer) ?? document.getElementById('extensions_settings');
+        if (!container) return;
+
+        // Prevent double-insertion
+        if (document.getElementById(STTC_IDS.panelEnabled) || document.getElementById(STTC_IDS.panelOpen)) return;
+
+        container.insertAdjacentHTML('beforeend', settingsHtml);
+
+        // Wire events (delegated, in case ST re-renders the drawer)
+        $(document).on('click', `#${STTC_IDS.panelOpen}`, async () => {
+            try {
+                await settings?.show();
+            } catch (ex) {
+                toastr.error(ex?.message ?? String(ex));
+            }
+        });
+
+        $(document).on('change', `#${STTC_IDS.panelEnabled}`, async (evt) => {
+            try {
+                if (!settings) return;
+                settings.isEnabled = evt.target.checked;
+                saveMetadataDebounced();
+                if (settings.isEnabled) {
+                    await restart();
+                } else {
+                    await end();
+                }
+                syncExtensionsPanelUi();
+            } catch (ex) {
+                toastr.error(ex?.message ?? String(ex));
+            }
+        });
+
+        syncExtensionsPanelUi();
+    } catch (ex) {
+        // If ST changes template APIs, don't crash the extension
+        console.warn('[TC] Failed to add Extensions panel UI:', ex);
+    }
+};
+
+const syncExtensionsPanelUi = () => {
+    const enabled = Boolean(settings?.isEnabled);
+    const toggle = document.getElementById(STTC_IDS.panelEnabled);
+    if (toggle) toggle.checked = enabled;
+    const status = document.getElementById(STTC_IDS.panelStatus);
+    if (status) status.textContent = enabled ? 'Enabled for this chat' : 'Disabled for this chat';
+};
+
+
 
 
 
@@ -177,6 +264,8 @@ const showHelp = async () => {
 
 
 
+
+
 const chatChanged = async()=>{
     const context = getContext();
     groupId = context.groupId;
@@ -186,8 +275,11 @@ const chatChanged = async()=>{
     } else {
         await end();
     }
+    syncExtensionsPanelUi();
 };
 eventSource.on(event_types.CHAT_CHANGED, ()=>(chatChanged(),null));
+
+
 
 
 
@@ -456,6 +548,8 @@ const updateMembers = async() => {
 
 
 
+
+
 const restart = async()=>{
     await end();
     start();
@@ -485,3 +579,27 @@ const end = async () => {
         imgs.pop();
     }
 };
+
+/**
+ * UI injection (runs once on load):
+ * - Adds a menu entry into the bottom-bar Extensions popup (#extensionsMenu)
+ * - Adds an entry into the main Extensions settings drawer (#extensions_settings)
+ */
+jQuery(async () => {
+    // Add UI bits as soon as the relevant containers exist.
+    addWandMenuUi();
+    await addExtensionsPanelUi();
+
+    // In case the menu is re-rendered later, re-try on APP_READY and on click open.
+    eventSource.on(event_types.APP_READY, () => {
+        addWandMenuUi();
+        addExtensionsPanelUi();
+    });
+
+    // Ensure panel reflects current chat on first load (CHAT_CHANGED won't always fire on boot).
+    try {
+        await chatChanged();
+    } catch {
+        // ignore
+    }
+});
