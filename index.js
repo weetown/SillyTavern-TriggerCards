@@ -25,6 +25,7 @@ let root;
 let imgs = [];
 /**@type {string[]} */
 let nameList = [];
+let lastCollapsedState;
 
 /** Bottom-bar Extensions (wand) menu + main Extensions panel integration **/
 const STTC_IDS = {
@@ -34,6 +35,7 @@ const STTC_IDS = {
     panelEnabled: 'sttc-enabled-toggle',
     panelOpen: 'sttc-open-settings',
     panelStatus: 'sttc-status',
+    panelCollapsed: 'sttc-collapsed-toggle',
 };
 
 const addWandMenuUi = () => {
@@ -95,6 +97,14 @@ const addExtensionsPanelUi = async () => {
             }
         });
 
+        $(document).on('change', `#${STTC_IDS.panelCollapsed}`, (evt) => {
+            if (!settings) return;
+            settings.isCollapsed = evt.target.checked;
+            saveMetadataDebounced();
+            applyCollapsedState(settings.isCollapsed);
+            syncExtensionsPanelUi();
+        });
+
         syncExtensionsPanelUi();
     } catch (ex) {
         // If ST changes template APIs, don't crash the extension
@@ -106,10 +116,22 @@ const syncExtensionsPanelUi = () => {
     const enabled = Boolean(settings?.isEnabled);
     const toggle = document.getElementById(STTC_IDS.panelEnabled);
     if (toggle) toggle.checked = enabled;
+    const collapsedToggle = document.getElementById(STTC_IDS.panelCollapsed);
+    if (collapsedToggle) collapsedToggle.checked = Boolean(settings?.isCollapsed);
     const status = document.getElementById(STTC_IDS.panelStatus);
     if (status) status.textContent = enabled ? 'Enabled for this chat' : 'Disabled for this chat';
 };
 
+const applyCollapsedState = (isCollapsed) => {
+    if (!root) return;
+    root.classList.toggle('sttc--collapsed', isCollapsed);
+    const toggle = root.querySelector('.sttc--toggle');
+    if (toggle) {
+        toggle.textContent = isCollapsed ? '▸ Trigger Cards' : '▾ Trigger Cards';
+        toggle.setAttribute('aria-expanded', String(!isCollapsed));
+        toggle.setAttribute('title', isCollapsed ? 'Expand Trigger Cards' : 'Collapse Trigger Cards');
+    }
+};
 
 
 
@@ -642,6 +664,10 @@ const updateMembers = async() => {
     let extensions;
 
     while (settings?.isEnabled && isRunning) {
+        if (lastCollapsedState !== settings.isCollapsed) {
+            applyCollapsedState(settings.isCollapsed);
+            lastCollapsedState = settings.isCollapsed;
+        }
         const names = getNames();
         const present = getNames(true);
         const muted = getMuted();
@@ -738,12 +764,28 @@ const start = () => {
     form.style.position = 'relative';
     root = document.createElement('div'); {
         root.classList.add('sttc--root');
+        const toggle = document.createElement('button'); {
+            toggle.type = 'button';
+            toggle.classList.add('sttc--toggle');
+            toggle.addEventListener('click', (evt)=>{
+                evt.preventDefault();
+                evt.stopPropagation();
+                settings.isCollapsed = !settings.isCollapsed;
+                applyCollapsedState(settings.isCollapsed);
+                lastCollapsedState = settings.isCollapsed;
+                saveMetadataDebounced();
+                syncExtensionsPanelUi();
+            });
+            root.append(toggle);
+        }
         root.addEventListener('wheel', evt=>{
             evt.preventDefault();
             root.scrollLeft += evt.deltaY;
         });
         form.append(root);
     }
+    applyCollapsedState(settings.isCollapsed);
+    lastCollapsedState = settings.isCollapsed;
     isRunning = true;
     loop = updateMembers();
 };
@@ -754,6 +796,7 @@ const end = async () => {
     nameList = [];
     root?.remove();
     root = null;
+    lastCollapsedState = null;
 
     const form = document.querySelector('#form_sheld');
     if (form) form.style.position = '';
