@@ -11,10 +11,6 @@ import { Settings } from './src/Settings.js';
 
 const log = (...msg) => console.log('[TC]', ...msg);
 
-
-
-
-
 /**@type {Settings} */
 let settings;
 /**@type {Promise} */
@@ -27,7 +23,7 @@ export let groupId;
 let root;
 /**@type {HTMLImageElement[]} */
 let imgs = [];
-/**@type {Object[]} */
+/**@type {string[]} */
 let nameList = [];
 
 /** Bottom-bar Extensions (wand) menu + main Extensions panel integration **/
@@ -119,11 +115,115 @@ const syncExtensionsPanelUi = () => {
 
 
 
+/**
+ * Piggyback on SillyTavern's built-in sprites/expressions system.
+ * This asks the server what sprite files exist instead of guessing + HEAD probing.
+ *
+ * Endpoint (server): GET /api/sprites/get?name=<characterNameOrSubfolder>
+ * Returns: [{ label, path }, ...]
+ * label is base expression label (neutral / joy etc) even for suffixes: neutral-1 / neutral.expressive
+ * path is a ready-to-use URL with cache-busting query (?t=mtime)
+ */
+const spriteListCache = new Map(); // name -> { time:number, sprites:any[] }
+const SPRITE_CACHE_TTL = 30_000; // ms (does NOT get cleared on expression change)
+
+const clearSpriteCache = () => spriteListCache.clear();
+
+const getSpritesForCharacter = async (name) => {
+    const now = Date.now();
+    const cached = spriteListCache.get(name);
+
+    if (cached && (now - cached.time) < SPRITE_CACHE_TTL) {
+        return cached.sprites;
+    }
+
+    try {
+        const res = await fetch(`/api/sprites/get?name=${encodeURIComponent(name)}`, {
+            headers: getRequestHeaders(),
+        });
+
+        if (!res.ok) {
+            const empty = [];
+            spriteListCache.set(name, { time: now, sprites: empty });
+            return empty;
+        }
+
+        const sprites = await res.json();
+        spriteListCache.set(name, { time: now, sprites });
+        return sprites;
+    } catch {
+        const empty = [];
+        spriteListCache.set(name, { time: now, sprites: empty });
+        return empty;
+    }
+};
+
+/**
+ * Avatar thumbnail fallback if no expression sprite is found.
+ * Uses the character's avatar filename from context (preferred).
+ */
+const getAvatarThumb = (characterName) => {
+    try {
+        const ctx = getContext();
+        const char = ctx?.characters?.find(c => c?.name === characterName);
+        if (!char?.avatar) return null;
+        return `/thumbnail?type=avatar&file=${encodeURIComponent(char.avatar)}`;
+    } catch {
+        return null;
+    }
+};
+
+/**
+ * Picks which variant to use when multiple sprites share the same label.
+ * - 'first': stable, cheapest
+ * - 'random': fun, changes per call
+ */
+const pickSpriteVariant = (matches, mode = 'first') => {
+    if (!matches || matches.length === 0) return undefined;
+    if (mode === 'random') {
+        return matches[Math.floor(Math.random() * matches.length)];
+    }
+    return matches[0];
+};
+
+/**
+ * Main resolver used everywhere in the extension.
+ * Name may be "Character" or "Character/subfolder".
+ */
+const findImage = async (name) => {
+    // 1) Ask ST for list of sprites that exist for this character folder
+    const sprites = await getSpritesForCharacter(name);
+
+    // labels from server are lowercased; normalize ours too
+    const target = String(settings.expression ?? '').toLowerCase();
+
+    const matches = sprites.filter(s => String(s.label).toLowerCase() === target);
+
+    if (matches.length > 0) {
+        // stable pick; change to 'random' if you want random variants
+        const chosen = pickSpriteVariant(matches, 'first');
+        return chosen?.path;
+    }
+
+    // 2) If no expression sprites exist, fallback to avatar thumbnail
+    const thumb = getAvatarThumb(name.includes('/') ? name.split('/')[0] : name);
+    if (thumb) return thumb;
+
+    // 3) Nothing found
+    return undefined;
+};
+
+
+
+
+
+
 const loadSettings = ()=>{
     settings = new Settings();
     settings.onRestart = ()=>restartDebounced();
     chat_metadata.triggerCards = settings;
 };
+
 const init = ()=>{
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({ name: 'tc-config',
         callback: async(args, value)=>{
@@ -132,6 +232,7 @@ const init = ()=>{
         },
         helpString: 'Open Trigger Cards setting menu.',
     }));
+
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({ name: 'tc-on',
         callback: (args, value)=>activate(args, value),
         namedArgumentList: [
@@ -149,33 +250,9 @@ const init = ()=>{
                 description: 'character expression to use for trigger card',
                 typeList: [ARGUMENT_TYPE.STRING],
                 enumList: [
-                    'admiration',
-                    'amusement',
-                    'anger',
-                    'annoyance',
-                    'approval',
-                    'caring',
-                    'confusion',
-                    'curiosity',
-                    'desire',
-                    'disappointment',
-                    'disapproval',
-                    'disgust',
-                    'embarrassment',
-                    'excitement',
-                    'fear',
-                    'gratitude',
-                    'grief',
-                    'joy',
-                    'love',
-                    'nervousness',
-                    'optimism',
-                    'pride',
-                    'realization',
-                    'relief',
-                    'remorse',
-                    'sadness',
-                    'surprise',
+                    'admiration','amusement','anger','annoyance','approval','caring','confusion','curiosity','desire',
+                    'disappointment','disapproval','disgust','embarrassment','excitement','fear','gratitude','grief',
+                    'joy','love','nervousness','optimism','pride','realization','relief','remorse','sadness','surprise',
                     'neutral',
                 ],
             }),
@@ -203,58 +280,61 @@ const init = ()=>{
         ],
         helpString: 'Activate Trigger Cards',
     }));
+
     registerSlashCommand('tc-off', (args, value)=>deactivate(), [], 'Deactivate trigger cards', true, true);
     registerSlashCommand('tc?', (args, value)=>showHelp(), [], 'Show help for trigger cards', true, true);
 };
 init();
-// eventSource.on(event_types.APP_READY, ()=>init());
+
 const activate = async(args, members) => {
     const memberList = members?.split(/\s*,\s*/)?.filter(it=>it);
-    const extList = args.extensions?.split(',')?.filter(it=>it);
-    let gray;
-    try {
-        gray = JSON.parse(args.gray ?? args.grey ?? 'null');
-    } catch { /* empty */ }
-    let mute;
-    try {
-        mute = JSON.parse(args.mute ?? args.grey ?? 'null');
-    } catch { /* empty */ }
+    const extList = args.extensions?.split(',')?.map(s => s.trim())?.filter(it=>it);
+
+    // Named args already come through as booleans for BOOLEAN types
+    const gray = (typeof args.grayscale === 'boolean') ? args.grayscale : null;
+    const mute = (typeof args.mute === 'boolean') ? args.mute : null;
+
     settings.actionQrSet = args.actions ?? (args.reset ? undefined : settings.actionQrSet);
     settings.memberQrSet = args.members ?? (args.reset ? undefined : settings.memberQrSet);
     settings.memberList = memberList && memberList.length > 0 ? memberList : (args.reset ? undefined : settings.memberList);
     if (settings.memberList && settings.memberList.filter(it=>it).length <= 0) settings.memberList = undefined;
+
     settings.expression = args.emote ?? (args.reset ? 'joy' : settings.expression) ?? 'joy';
-    settings.extensions = extList && extList.length > 0 ? extList : (args.reset ? ['png', 'webp', 'gif'] : settings.extList) ?? ['png', 'webp', 'gif'];
+
+    // Fix: use settings.extensions, not settings.extList
+    settings.extensions = extList && extList.length > 0
+        ? extList
+        : (args.reset ? ['png', 'webp', 'gif'] : settings.extensions) ?? ['png', 'webp', 'gif'];
+
     if (settings.extensions && settings.extensions.filter(it=>it).length <= 0) settings.extensions = ['png', 'webp', 'gif'];
+
     settings.grayscale = gray ?? (args.reset ? true : settings.grayscale) ?? true;
     settings.mute = mute ?? (args.reset ? true : settings.mute) ?? true;
+
     settings.isEnabled = true;
+
     saveMetadataDebounced();
     restart();
+
     let wasActive = settings.isActive;
-    if (wasActive) {
-        settings.hide();
-    }
+    if (wasActive) settings.hide();
     settings.registerSettings();
     await settings.init();
-    if (wasActive) {
-        settings.show();
-    }
+    if (wasActive) settings.show();
 };
+
 const deactivate = async () => {
     settings.isEnabled = false;
     saveMetadataDebounced();
     await end();
+
     let wasActive = settings.isActive;
-    if (wasActive) {
-        settings.hide();
-    }
+    if (wasActive) settings.hide();
     settings.registerSettings();
     await settings.init();
-    if (wasActive) {
-        settings.show();
-    }
+    if (wasActive) settings.show();
 };
+
 const showHelp = async () => {
     const converter = reloadMarkdownProcessor();
     const readme = await (await fetch('/scripts/extensions/third-party/SillyTavern-TriggerCards/README.md')).text();
@@ -269,6 +349,10 @@ const showHelp = async () => {
 const chatChanged = async()=>{
     const context = getContext();
     groupId = context.groupId;
+
+    // Different chat, different character set: clear cached sprite lists
+    clearSpriteCache();
+
     loadSettings();
     if (settings?.isEnabled) {
         await restart();
@@ -288,6 +372,7 @@ const handleClick = async (/**@type {MouseEvent}*/evt, /**@type {string}*/fullNa
     evt.preventDefault();
     evt.stopPropagation();
     const [name, ...args] = fullName.split('::');
+
     if (settings.memberQrSet && args.includes('qr')) {
         try {
             await quickReplyApi.executeQuickReply(settings.memberQrSet, fullName);
@@ -300,6 +385,7 @@ const handleClick = async (/**@type {MouseEvent}*/evt, /**@type {string}*/fullNa
         if (evt.shiftKey) modifiers.push('s');
         if (evt.altKey) modifiers.push('a');
         const mod = modifiers.join('');
+
         if (settings.actionQrSet) {
             if (quickReplyApi.listQuickReplies(settings.actionQrSet).includes(mod)) {
                 try {
@@ -340,6 +426,7 @@ const handleClick = async (/**@type {MouseEvent}*/evt, /**@type {string}*/fullNa
         }
     }
 };
+
 /**
  * @param {MouseEvent} evt
  * @param {string} fullName
@@ -349,21 +436,34 @@ const handleContext = async(evt, fullName, wrap) => {
     evt.preventDefault();
     evt.stopPropagation();
     wrap.classList.add('sttc--hover');
+
     const [name, ...args] = fullName.split('::');
-    const response = await fetch('/api/plugins/costumes/', {
-        method: 'POST',
-        headers: getRequestHeaders(),
-        body: JSON.stringify({ folder: name, recurse: true }),
-    });
+
+    let response;
+    try {
+        response = await fetch('/api/plugins/costumes/', {
+            method: 'POST',
+            headers: getRequestHeaders(),
+            body: JSON.stringify({ folder: name, recurse: true }),
+        });
+    } catch (e) {
+        wrap.classList.remove('sttc--hover');
+        toastr.error('Costumes plugin not available.');
+        return;
+    }
+
     if (!response.ok) {
         wrap.classList.remove('sttc--hover');
         toastr.error(`Failed to retrieve costumes: ${response.status} - ${response.statusText}`);
         return;
     }
+
     const costumes = await response.json();
     const rect = wrap.getBoundingClientRect();
+
     const blocker = document.createElement('div'); {
         blocker.classList.add('sttc--blocker');
+
         const clone = /**@type {HTMLElement}*/(wrap.cloneNode(true)); {
             clone.title = 'Close menu';
             clone.style.top = `${rect.top}px`;
@@ -374,14 +474,26 @@ const handleContext = async(evt, fullName, wrap) => {
             });
             blocker.append(clone);
         }
+
         const content = document.createElement('div'); {
             content.classList.add('sttc--content');
             content.style.bottom = `calc(100vh - ${rect.top}px - 2em)`;
-            const urls = await Promise.all(costumes.map(it=>findImage(it)));
+
+            // Costumes plugin preview probing (temporary, until moved to ST's built-in /costume workflow)
+            const urls = await Promise.all(costumes.map(async (costumePath) => {
+                for (const ext of settings.extensions) {
+                    const url = `/characters/${costumePath}/${settings.expression}.${ext}`;
+                    const resp = await fetch(url, { method: 'HEAD', headers: getRequestHeaders() });
+                    if (resp.ok) return url;
+                }
+                return undefined;
+            }));
+
             let i = -1;
             for (const url of urls) {
                 i++;
                 const costume = costumes[i];
+
                 const cost = document.createElement('div'); {
                     cost.classList.add('sttc--costume');
                     cost.addEventListener('click', ()=>{
@@ -390,38 +502,43 @@ const handleContext = async(evt, fullName, wrap) => {
                         wrap.classList.remove('sttc--hover');
                         executeSlashCommandsWithOptions(`/costume ${costume}`);
                         saveMetadataDebounced();
+
+                        // Costume change can change what images appear; clear sprite cache + restart
+                        clearSpriteCache();
                         restart();
                     });
+
                     const img = document.createElement('img'); {
-                        img.src = url;
-                        img.classList.add();
+                        img.src = url ?? '';
                         cost.append(img);
                     }
+
                     const lbl = document.createElement('div'); {
                         lbl.classList.add('sttc--label');
                         lbl.textContent = costume.split('/').pop();
                         cost.append(lbl);
                     }
+
                     content.append(cost);
                 }
             }
+
             blocker.append(content);
         }
+
         document.body.append(blocker);
     }
 };
+
 const handleTitle = async (el, fullName) => {
     const [name, ...args] = fullName.split('::');
     let titleParts = [name];
+
     if (settings.memberQrSet && args.includes('qr')) {
         const qr = quickReplyApi.getQrByLabel(settings.memberQrSet, fullName);
         titleParts.push(qr.title || qr.message);
     } else if (settings.actionQrSet) {
-        const mods = {
-            'c': 'ctrl',
-            's': 'shift',
-            'a': 'alt',
-        };
+        const mods = { 'c': 'ctrl', 's': 'shift', 'a': 'alt' };
         const set = quickReplyApi.getSetByName(settings.actionQrSet);
         titleParts.push(...set.qrList.map(qr=>`${[...qr.label.split('').map(m=>mods[m]), 'click'].join(' + ')}: ${qr.title ?? ''}`));
     } else {
@@ -431,10 +548,12 @@ const handleTitle = async (el, fullName) => {
             'alt + click: mute',
         );
     }
+
     titleParts.push('right click to change costume');
     titleParts.splice(1, 0, '-'.repeat(titleParts.reduce((max,cur)=>Math.max(max,cur.length),0) * 1.2));
     el.title = titleParts.join('\n');
 };
+
 const getNames = (present = false)=>{
     if (!present) {
         if (settings.memberList && settings.memberList.length > 0) {
@@ -448,6 +567,7 @@ const getNames = (present = false)=>{
             }
         }
     }
+
     if (groupId) {
         const context = getContext();
         const group = context.groups.find(it=>it.id == groupId);
@@ -458,6 +578,7 @@ const getNames = (present = false)=>{
         return [characters[getContext().characterId]].map(it=>it.name);
     }
 };
+
 const getMuted = ()=>{
     if (!groupId) return [];
     const context = getContext();
@@ -466,51 +587,51 @@ const getMuted = ()=>{
     const names = members.map(it=>it.name);
     return names;
 };
-const findImage = async(name) => {
-    for (const ext of settings.extensions) {
-        const url = `/characters/${name}/${settings.expression}.${ext}`;
-        const resp = await fetch(url, {
-            method: 'HEAD',
-            headers: getRequestHeaders(),
-        });
-        if (resp.ok) {
-            return url;
-        }
-    }
-};
+
 const updateMembers = async() => {
     let expression;
     let extensions;
+
     while (settings?.isEnabled && isRunning) {
         const names = getNames();
         const present = getNames(true);
         const muted = getMuted();
-        // [1,2,3,4,5,6,7,8].forEach(it=>names.push(...members.map(x=>x.name)));
+
         const removed = nameList.filter(it=>names.indexOf(it) == -1);
         const added = names.filter(it=>nameList.indexOf(it) == -1);
+
         for (const name of removed) {
             nameList.splice(nameList.indexOf(name), 1);
             let idx = imgs.findIndex(it=>it.getAttribute('data-character') == name);
             const img = imgs.splice(idx, 1)[0];
-            img.remove();
+            img?.closest('.sttc--wrapper')?.remove();
         }
+
         for (const name of added) {
             const namePart = name.split('::')[0];
+
             if (settings.costumes?.[namePart]) {
                 executeSlashCommandsWithOptions(`/costume ${settings.costumes[namePart]}`);
             }
+
             nameList.push(name);
+
             const wrap = document.createElement('div'); {
                 wrap.classList.add('sttc--wrapper');
                 wrap.addEventListener('click', (evt)=>handleClick(evt, name));
                 wrap.addEventListener('contextmenu', (evt)=>handleContext(evt, name, wrap));
                 wrap.addEventListener('pointerenter', ()=>handleTitle(wrap, name));
+
                 const img = document.createElement('img'); {
                     img.classList.add('sttc--img');
                     img.setAttribute('data-character', name);
-                    img.src = await findImage(settings.costumes?.[namePart] ?? namePart);
+
+                    // IMPORTANT: Use sprites endpoint for expression images
+                    img.src = await findImage(settings.costumes?.[namePart] ?? namePart) ?? '';
+
                     wrap.append(img);
                 }
+
                 const before = imgs.find(it=>name.localeCompare(it.getAttribute('data-character')) == -1);
                 if (before) {
                     log('putting', name, 'before', before);
@@ -523,22 +644,27 @@ const updateMembers = async() => {
                 }
             }
         }
+
         imgs.forEach(async(img)=>{
             if (settings.grayscale && present.indexOf(img.getAttribute('data-character')) == -1) {
                 img.closest('.sttc--wrapper').classList.add('sttc--absent');
             } else {
                 img.closest('.sttc--wrapper').classList.remove('sttc--absent');
             }
+
             if (settings.mute && muted.indexOf(img.getAttribute('data-character')) == -1) {
                 img.closest('.sttc--wrapper').classList.add('sttc--chatty');
             } else {
                 img.closest('.sttc--wrapper').classList.remove('sttc--chatty');
             }
+
+            // We do NOT clear sprite cache on expression change. We just pick a different label from cached list.
             if (expression != settings.expression || extensions != settings.extensions.join(', ')) {
                 const namePart = img.getAttribute('data-character').split('::')[0];
-                img.src = await findImage(settings.costumes?.[namePart] ?? namePart);
+                img.src = await findImage(settings.costumes?.[namePart] ?? namePart) ?? '';
             }
         });
+
         expression = settings.expression;
         extensions = settings.extensions.join(', ');
         await delay(500);
@@ -555,26 +681,34 @@ const restart = async()=>{
     start();
 };
 const restartDebounced = debounce(restart);
+
 const start = () => {
-    document.querySelector('#form_sheld').style.position = 'relative';
+    const form = document.querySelector('#form_sheld');
+    if (!form) return;
+
+    form.style.position = 'relative';
     root = document.createElement('div'); {
         root.classList.add('sttc--root');
         root.addEventListener('wheel', evt=>{
             evt.preventDefault();
             root.scrollLeft += evt.deltaY;
         });
-        document.querySelector('#form_sheld').append(root);
+        form.append(root);
     }
     isRunning = true;
     loop = updateMembers();
 };
+
 const end = async () => {
     isRunning = false;
     if (loop) await loop;
     nameList = [];
     root?.remove();
     root = null;
-    document.querySelector('#form_sheld').style.position = '';
+
+    const form = document.querySelector('#form_sheld');
+    if (form) form.style.position = '';
+
     while (imgs.length > 0) {
         imgs.pop();
     }
