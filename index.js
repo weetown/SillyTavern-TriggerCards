@@ -21,6 +21,8 @@ let isRunning = false;
 export let groupId;
 /**@type {HTMLElement} */
 let root;
+/**@type {HTMLElement} */
+let tray;
 /**@type {HTMLImageElement[]} */
 let imgs = [];
 /**@type {string[]} */
@@ -127,9 +129,9 @@ const applyCollapsedState = (isCollapsed) => {
     root.classList.toggle('sttc--collapsed', isCollapsed);
     const toggle = root.querySelector('.sttc--toggle');
     if (toggle) {
-        toggle.textContent = isCollapsed ? '▸ Trigger Cards' : '▾ Trigger Cards';
+        toggle.textContent = isCollapsed ? '▲ Cards' : '▼ Cards';
         toggle.setAttribute('aria-expanded', String(!isCollapsed));
-        toggle.setAttribute('title', isCollapsed ? 'Expand Trigger Cards' : 'Collapse Trigger Cards');
+        toggle.setAttribute('title', isCollapsed ? 'Show Trigger Cards' : 'Hide Trigger Cards');
     }
 };
 
@@ -714,7 +716,7 @@ const updateMembers = async() => {
                     imgs.splice(imgs.indexOf(before), 0, img);
                 } else {
                     log('putting', name, 'at end');
-                    root.append(wrap);
+                    tray?.append(wrap);
                     imgs.push(img);
                 }
             }
@@ -761,9 +763,9 @@ const start = () => {
     const form = document.querySelector('#form_sheld');
     if (!form) return;
 
-    form.style.position = 'relative';
     root = document.createElement('div'); {
         root.classList.add('sttc--root');
+
         const toggle = document.createElement('button'); {
             toggle.type = 'button';
             toggle.classList.add('sttc--toggle');
@@ -778,10 +780,16 @@ const start = () => {
             });
             root.append(toggle);
         }
-        root.addEventListener('wheel', evt=>{
-            evt.preventDefault();
-            root.scrollLeft += evt.deltaY;
-        });
+
+        tray = document.createElement('div'); {
+            tray.classList.add('sttc--tray');
+            tray.addEventListener('wheel', evt=>{
+                evt.preventDefault();
+                tray.scrollLeft += evt.deltaY;
+            });
+            root.append(tray);
+        }
+
         form.append(root);
     }
     applyCollapsedState(settings.isCollapsed);
@@ -794,12 +802,10 @@ const end = async () => {
     isRunning = false;
     if (loop) await loop;
     nameList = [];
+    tray = null;
     root?.remove();
     root = null;
     lastCollapsedState = null;
-
-    const form = document.querySelector('#form_sheld');
-    if (form) form.style.position = '';
 
     while (imgs.length > 0) {
         imgs.pop();
