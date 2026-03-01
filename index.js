@@ -790,7 +790,7 @@ const start = () => {
             root.append(tray);
         }
 
-        form.append(root);
+        form.prepend(root);
     }
     applyCollapsedState(settings.isCollapsed);
     lastCollapsedState = settings.isCollapsed;
