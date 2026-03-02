@@ -311,8 +311,34 @@ const findImage = async (name, cardKey = null) => {
         }
     }
 
+    const defaultSource = settings.defaultImageSource ?? 'avatar';
+
+    // If avatar default is selected and no explicit per-card override exists, skip expression lookup.
+    if (defaultSource === 'avatar') {
+        const thumb = getAvatarThumb(characterName);
+        if (thumb) return thumb;
+    }
+
     // labels from server are lowercased; normalize ours too
     const target = String(settings.expression ?? '').toLowerCase().trim();
+    if ((defaultSource === 'sprite' || defaultSource === 'expressions') && target) {
+        for (const folder of folders) {
+            const sprites = await getSpritesForCharacter(folder);
+            const matches = sprites.filter(s => String(s.label).toLowerCase() === target);
+            if (matches.length > 0) {
+                const chosen = pickSpriteVariant(matches, 'first');
+                return chosen?.path;
+            }
+        }
+    }
+
+    // Gallery default source needs explicit per-card selection, so fallback to avatar.
+    if (defaultSource === 'gallery') {
+        const thumb = getAvatarThumb(characterName);
+        if (thumb) return thumb;
+    }
+
+    // Fallback expression lookup (legacy behavior for existing configs)
     if (target) {
         for (const folder of folders) {
             const sprites = await getSpritesForCharacter(folder);

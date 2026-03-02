@@ -128,6 +128,15 @@ export class Settings {
         Object.assign(this, chat_metadata.triggerCards ?? {});
     }
 
+    async rebuildActiveUi() {
+        const wasActive = this.isActive;
+        const parent = this.parent ?? document.body;
+        if (wasActive) this.hide();
+        this.registerSettings();
+        await this.init();
+        if (wasActive) await this.show(parent);
+    }
+
 
     registerSettings() {
         while (this.settingList.pop());
@@ -209,9 +218,8 @@ export class Settings {
                 initialValue: this.showActionsSection,
                 onChange: (it)=>{
                     this.showActionsSection = it.value;
-                    this.registerSettings();
-                    this.init();
                     this.save();
+                    this.rebuildActiveUi();
                 },
             }));
             this.settingList.push(CheckboxSetting.fromProps({ id: 'sttc--showMembersSection',
@@ -221,9 +229,8 @@ export class Settings {
                 initialValue: this.showMembersSection,
                 onChange: (it)=>{
                     this.showMembersSection = it.value;
-                    this.registerSettings();
-                    this.init();
                     this.save();
+                    this.rebuildActiveUi();
                 },
             }));
             this.settingList.push(ActionSetting.fromProps({ id: 'sttc--manageSpritesQuick',
@@ -1049,7 +1056,7 @@ export class Settings {
         const wrap = document.createElement('div');
         wrap.classList.add('sttc--sprite-manager');
         const context = getContext();
-        const chars = context.characters.map(c => c.name).filter(Boolean);
+        const chars = (context?.characters ?? []).map(c => c?.name).filter(Boolean);
 
         const preview = document.createElement('div');
         preview.classList.add('sttc--sprite-manager-preview');
@@ -1095,7 +1102,7 @@ export class Settings {
             option.textContent = name;
             select.append(option);
         }
-        this.spriteManagerCharacter ??= context.characters[context.characterId]?.name ?? '';
+        this.spriteManagerCharacter ??= context?.characters?.[context.characterId]?.name ?? chars[0] ?? '';
         if (this.spriteManagerCharacter) select.value = this.spriteManagerCharacter;
 
         const content = document.createElement('div');
@@ -1266,7 +1273,7 @@ export class Settings {
         }
         parent.append(this.dom);
         this.dom.classList.add('sttc--active');
-        this.dom.style.bottom = `calc(100dvh + 50px - ${document.querySelector('#form_sheld').getBoundingClientRect().top}px`;
+        this.dom.style.bottom = `calc(100dvh + 50px - ${document.querySelector('#form_sheld').getBoundingClientRect().top}px)`;
         this.onShow?.();
         await delay(200);
         this.updateCategory();
