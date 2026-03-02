@@ -24,6 +24,7 @@ export class Settings {
     /**@type {boolean} */ grayscale = true;
     /**@type {boolean} */ mute = true;
     /**@type {boolean} */ isCollapsed = false;
+    /**@type {boolean} */ startCollapsed = false;
     /**@type {{[index:string]:string}} */ costumes = {};
     /**@type {'left'|'center'|'right'} */ align = 'center';
     /**@type {'square'|'circle'} */ imageShape = 'square';
@@ -40,6 +41,8 @@ export class Settings {
 
 
     /**@type {()=>void} */ onRestart;
+    /**@type {()=>void} */ onShow;
+    /**@type {()=>void} */ onHide;
 
 
     /**@type {HTMLElement}*/ dom;
@@ -62,6 +65,7 @@ export class Settings {
             grayscale: this.grayscale,
             mute: this.mute,
             isCollapsed: this.isCollapsed,
+            startCollapsed: this.startCollapsed,
             costumes: this.costumes,
             align: this.align,
             imageShape: this.imageShape,
@@ -111,6 +115,7 @@ export class Settings {
                                 grayscale: true,
                                 mute: true,
                                 isCollapsed: false,
+                                startCollapsed: false,
                                 costumes: {},
                                 align: 'center',
                                 imageShape: 'square',
@@ -241,9 +246,9 @@ export class Settings {
                 name: 'Start Collapsed',
                 description: 'Collapse the Trigger Cards bar to a small tab in this chat.',
                 category: ['Layout'],
-                initialValue: this.isCollapsed,
+                initialValue: this.startCollapsed,
                 onChange: (it)=>{
-                    this.isCollapsed = it.value;
+                    this.startCollapsed = it.value;
                     this.save();
                 },
             }));
@@ -978,6 +983,7 @@ export class Settings {
         parent.append(this.dom);
         this.dom.classList.add('sttc--active');
         this.dom.style.bottom = `calc(100dvh + 50px - ${document.querySelector('#form_sheld').getBoundingClientRect().top}px`;
+        this.onShow?.();
         await delay(200);
         this.updateCategory();
         this.dom.querySelector('.search').select();
@@ -985,6 +991,7 @@ export class Settings {
     hide() {
         this.dom.classList.remove('sttc--active');
         this.dom.remove();
+        this.onHide?.();
     }
     async toggle(parent) {
         if (this.isActive) {

@@ -101,8 +101,9 @@ const addExtensionsPanelUi = async () => {
 
         $(document).on('change', `#${STTC_IDS.panelCollapsed}`, (evt) => {
             if (!settings) return;
-            settings.isCollapsed = evt.target.checked;
+            settings.startCollapsed = evt.target.checked;
             saveMetadataDebounced();
+            settings.isCollapsed = evt.target.checked;
             applyCollapsedState(settings.isCollapsed);
             syncExtensionsPanelUi();
         });
@@ -119,7 +120,7 @@ const syncExtensionsPanelUi = () => {
     const toggle = document.getElementById(STTC_IDS.panelEnabled);
     if (toggle) toggle.checked = enabled;
     const collapsedToggle = document.getElementById(STTC_IDS.panelCollapsed);
-    if (collapsedToggle) collapsedToggle.checked = Boolean(settings?.isCollapsed);
+    if (collapsedToggle) collapsedToggle.checked = Boolean(settings?.startCollapsed);
     const status = document.getElementById(STTC_IDS.panelStatus);
     if (status) status.textContent = enabled ? 'Enabled for this chat' : 'Disabled for this chat';
 };
@@ -133,6 +134,47 @@ const applyCollapsedState = (isCollapsed) => {
         toggle.setAttribute('aria-expanded', String(!isCollapsed));
         toggle.setAttribute('title', isCollapsed ? 'Show Trigger Cards' : 'Hide Trigger Cards');
     }
+};
+
+const settingsCloseHandlers = {
+    onKeyDown: null,
+    onMouseDown: null,
+};
+
+const wireSettingsCloseInteractions = () => {
+    if (!settings?.dom) return;
+
+    const teardown = () => {
+        if (settingsCloseHandlers.onKeyDown) {
+            document.removeEventListener('keydown', settingsCloseHandlers.onKeyDown, true);
+            settingsCloseHandlers.onKeyDown = null;
+        }
+        if (settingsCloseHandlers.onMouseDown) {
+            document.removeEventListener('mousedown', settingsCloseHandlers.onMouseDown, true);
+            settingsCloseHandlers.onMouseDown = null;
+        }
+    };
+
+    teardown();
+
+    settingsCloseHandlers.onKeyDown = (evt) => {
+        if (!settings?.isActive) return;
+        if (evt.key === 'Escape') {
+            settings.hide();
+            teardown();
+        }
+    };
+
+    settingsCloseHandlers.onMouseDown = (evt) => {
+        if (!settings?.isActive) return;
+        if (!settings.dom?.contains(evt.target)) {
+            settings.hide();
+            teardown();
+        }
+    };
+
+    document.addEventListener('keydown', settingsCloseHandlers.onKeyDown, true);
+    document.addEventListener('mousedown', settingsCloseHandlers.onMouseDown, true);
 };
 
 
@@ -289,6 +331,17 @@ const findImage = async (name, cardKey = null) => {
 const loadSettings = ()=>{
     settings = new Settings();
     settings.onRestart = ()=>restartDebounced();
+    settings.onShow = ()=>wireSettingsCloseInteractions();
+    settings.onHide = ()=>{
+        if (settingsCloseHandlers.onKeyDown) {
+            document.removeEventListener('keydown', settingsCloseHandlers.onKeyDown, true);
+            settingsCloseHandlers.onKeyDown = null;
+        }
+        if (settingsCloseHandlers.onMouseDown) {
+            document.removeEventListener('mousedown', settingsCloseHandlers.onMouseDown, true);
+            settingsCloseHandlers.onMouseDown = null;
+        }
+    };
     chat_metadata.triggerCards = settings;
 };
 
@@ -839,6 +892,7 @@ const start = () => {
 
         form.prepend(root);
     }
+    settings.isCollapsed = Boolean(settings.startCollapsed);
     applyCollapsedState(settings.isCollapsed);
     lastCollapsedState = settings.isCollapsed;
     isRunning = true;
