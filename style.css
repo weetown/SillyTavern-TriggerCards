@@ -2,6 +2,12 @@
 .sttc--root {
   --sttc-handle-height: 14px;
   --sttc-tray-height: 100px;
+  --sttc-align: center;
+  --sttc-shape-radius: 8px;
+  --sttc-bg: rgba(0, 0, 0, 0.35);
+  --sttc-image-height: 10vh;
+  --sttc-image-rendering: auto;
+  --sttc-card-aspect: auto;
   position: relative;
   width: 100%;
   height: calc(var(--sttc-handle-height) + var(--sttc-tray-height));
@@ -10,7 +16,7 @@
   transform-origin: top center;
   box-sizing: border-box;
   display: flex;
-  justify-content: center;
+  justify-content: stretch;
   align-items: flex-start;
   overflow: hidden;
   pointer-events: none;
@@ -49,26 +55,30 @@
 }
 .sttc--tray {
   pointer-events: auto;
-  width: min(100%, 860px);
+  width: 100%;
   min-height: var(--sttc-tray-height);
   max-height: var(--sttc-tray-height);
-  display: flex;
-  flex-direction: row;
-  gap: 6px;
-  align-items: flex-start;
   padding: 6px 12px;
   box-sizing: border-box;
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: none;
   mask: linear-gradient(90deg, transparent 0%, black 3%, black 97%, transparent 100%);
-  background: rgba(0, 0, 0, 0.35);
+  background: var(--sttc-bg);
   border: 1px solid rgba(255, 255, 255, 0.18);
   border-radius: 14px;
   backdrop-filter: blur(10px);
   transition: transform 300ms ease, opacity 250ms ease;
   transform: translateY(0);
   opacity: 1;
+}
+.sttc--tray-row {
+  min-width: 100%;
+  display: flex;
+  flex-direction: row;
+  justify-content: var(--sttc-align);
+  gap: 6px;
+  align-items: flex-start;
 }
 .sttc--root.sttc--collapsed > .sttc--tray {
   transform: translateY(115%);
@@ -78,28 +88,32 @@
 .sttc--tray::-webkit-scrollbar {
   display: none;
 }
-.sttc--tray > .sttc--wrapper.sttc--absent > .sttc--img {
+.sttc--tray-row > .sttc--wrapper.sttc--absent > .sttc--img {
   filter: grayscale(1);
 }
-.sttc--tray > .sttc--wrapper.sttc--chatty {
+.sttc--tray-row > .sttc--wrapper.sttc--chatty {
   opacity: 1;
 }
-.sttc--tray > .sttc--wrapper:hover,
-.sttc--tray > .sttc--wrapper.sttc--hover {
+.sttc--tray-row > .sttc--wrapper:hover,
+.sttc--tray-row > .sttc--wrapper.sttc--hover {
   transform: translateY(-10%);
   opacity: 1;
 }
 .sttc--wrapper {
-  height: 94px;
+  height: min(94px, var(--sttc-image-height));
+  aspect-ratio: var(--sttc-card-aspect);
   filter: drop-shadow(0 0 6px rgba(0 0 0 / 0.5));
   cursor: pointer;
   opacity: 0.75;
   transition: transform 250ms ease, opacity 250ms ease;
 }
 .sttc--wrapper > .sttc--img {
+  width: 100%;
   height: 100%;
   object-fit: contain;
   object-position: top;
+  border-radius: var(--sttc-shape-radius);
+  image-rendering: var(--sttc-image-rendering);
   pointer-events: all;
   transition: 400ms;
 }
