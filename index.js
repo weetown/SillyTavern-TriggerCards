@@ -5,7 +5,7 @@ import { SlashCommand } from '../../../slash-commands/SlashCommand.js';
 import { ARGUMENT_TYPE, SlashCommandArgument, SlashCommandNamedArgument } from '../../../slash-commands/SlashCommandArgument.js';
 import { SlashCommandEnumValue } from '../../../slash-commands/SlashCommandEnumValue.js';
 import { SlashCommandParser } from '../../../slash-commands/SlashCommandParser.js';
-import { debounce, delay } from '../../../utils.js';
+import { delay } from '../../../utils.js';
 import { quickReplyApi } from '../../quick-reply/index.js';
 import { Settings } from './src/Settings.js';
 
@@ -331,7 +331,7 @@ const findImage = async (name, cardKey = null) => {
 
 const loadSettings = ()=>{
     settings = new Settings();
-    settings.onRestart = ()=>restartDebounced();
+    settings.onRestart = ()=>restart();
     settings.onShow = ()=>wireSettingsCloseInteractions();
     settings.onHide = ()=>{
         if (settingsCloseHandlers.onKeyDown) {
@@ -849,7 +849,6 @@ const restart = async()=>{
     });
     return restartPromise;
 };
-const restartDebounced = debounce(restart);
 
 const start = () => {
     if (!settings?.isEnabled) return;
