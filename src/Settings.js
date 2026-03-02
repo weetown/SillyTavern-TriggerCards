@@ -319,6 +319,38 @@ export class Settings {
         return await res.json();
     }
 
+    buildSpriteUploadForm(characterName, spriteName, file, fileField = 'file') {
+        const form = new FormData();
+        form.append('name', characterName);
+        form.append('label', spriteName);
+        form.append('spriteName', spriteName);
+        form.append(fileField, file);
+        return form;
+    }
+
+    async postSpriteUpload(form) {
+        const headers = getRequestHeaders();
+        delete headers['Content-Type'];
+        delete headers['content-type'];
+        return await fetch('/api/sprites/upload', {
+            method: 'POST',
+            headers,
+            body: form,
+        });
+    }
+
+    async uploadSpriteWithFallback(characterName, spriteName, file) {
+        // ST builds may wire different multer field names for sprite upload.
+        const first = await this.postSpriteUpload(this.buildSpriteUploadForm(characterName, spriteName, file, 'file'));
+        if (first.ok) return first;
+
+        if (![400, 500].includes(first.status)) {
+            return first;
+        }
+
+        return await this.postSpriteUpload(this.buildSpriteUploadForm(characterName, spriteName, file, 'avatar'));
+    }
+
     async renderSpriteRows(content, characterName) {
         content.innerHTML = '';
         if (!characterName) {
@@ -393,27 +425,20 @@ export class Settings {
             upload.addEventListener('click', async () => {
                 const file = fileInput.files?.[0];
                 if (!file) return toastr.warning('Pick an image first.');
-                const form = new FormData();
-                form.append('name', characterName);
-                form.append('label', spriteName);
-                form.append('spriteName', spriteName);
-                form.append('file', file);
-                const headers = getRequestHeaders();
-                delete headers['Content-Type'];
-                delete headers['content-type'];
-                const response = await fetch('/api/sprites/upload', {
-                    method: 'POST',
-                    headers,
-                    body: form,
-                });
-                if (!response.ok) {
-                    toastr.error(`Upload failed: ${response.status}`);
-                    return;
+                try {
+                    const response = await this.uploadSpriteWithFallback(characterName, spriteName, file);
+                    if (!response.ok) {
+                        const details = (await response.text()).trim();
+                        toastr.error(`Upload failed (${response.status}): ${(details || 'No server details').slice(0, 300)}`);
+                        return;
+                    }
+                    const next = { ...overrides, [cardKey]: spriteName };
+                    await this.saveCharacterExtensions(characterName, { ...extension, spriteOverrides: next });
+                    this.save(true);
+                    await this.renderSpriteRows(content, characterName);
+                } catch (ex) {
+                    toastr.error(`Upload failed: ${ex?.message ?? String(ex)}`);
                 }
-                const next = { ...overrides, [cardKey]: spriteName };
-                await this.saveCharacterExtensions(characterName, { ...extension, spriteOverrides: next });
-                this.save(true);
-                await this.renderSpriteRows(content, characterName);
             });
 
             const remove = document.createElement('button');
