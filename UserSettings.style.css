@@ -195,6 +195,15 @@
                         flex-direction: column;
                         gap: 0.75em;
                     }
+                    .sttc--sprite-folder-wrap {
+                        display: flex;
+                        flex-direction: column;
+                        gap: 0.35em;
+                    }
+                    .sttc--sprite-folder-hint {
+                        font-size: 0.9em;
+                        opacity: 0.8;
+                    }
                     .sttc--sprite-row {
                         display: grid;
                         grid-template-columns: 64px 1fr auto;

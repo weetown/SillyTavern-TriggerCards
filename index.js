@@ -161,6 +161,14 @@ const getSpriteOverridesForCharacter = (characterName) => {
     return character?.data?.extensions?.[TRIGGER_CARDS_EXTENSION_KEY]?.spriteOverrides ?? {};
 };
 
+const getSpriteFoldersForCard = (characterName, cardKey = null) => {
+    const folders = [];
+    const selectedCostume = cardKey ? settings?.costumes?.[cardKey] : null;
+    if (selectedCostume) folders.push(selectedCostume);
+    if (!folders.includes(characterName)) folders.push(characterName);
+    return folders;
+};
+
 const getSpritesForCharacter = async (name) => {
     const now = Date.now();
     const cached = spriteListCache.get(name);
@@ -223,18 +231,21 @@ const pickSpriteVariant = (matches, mode = 'first') => {
  * Name may be "Character" or "Character/subfolder".
  */
 const findImage = async (name, cardKey = null) => {
-    // 1) Ask ST for list of sprites that exist for this character folder
-    const sprites = await getSpritesForCharacter(name);
-
+    // Resolution order: selected costume folder -> character root folder.
     const characterName = name.includes('/') ? name.split('/')[0] : name;
+    const folders = getSpriteFoldersForCard(characterName, cardKey);
+
     if (cardKey) {
         const overrides = getSpriteOverridesForCharacter(characterName);
         const overrideLabel = overrides?.[cardKey];
         if (overrideLabel) {
-            const overrideMatches = sprites.filter(s => String(s.label).toLowerCase() === String(overrideLabel).toLowerCase());
-            if (overrideMatches.length > 0) {
-                const chosenOverride = pickSpriteVariant(overrideMatches, 'first');
-                return chosenOverride?.path;
+            for (const folder of folders) {
+                const sprites = await getSpritesForCharacter(folder);
+                const overrideMatches = sprites.filter(s => String(s.label).toLowerCase() === String(overrideLabel).toLowerCase());
+                if (overrideMatches.length > 0) {
+                    const chosenOverride = pickSpriteVariant(overrideMatches, 'first');
+                    return chosenOverride?.path;
+                }
             }
         }
     }
@@ -242,12 +253,13 @@ const findImage = async (name, cardKey = null) => {
     // labels from server are lowercased; normalize ours too
     const target = String(settings.expression ?? '').toLowerCase();
 
-    const matches = sprites.filter(s => String(s.label).toLowerCase() === target);
-
-    if (matches.length > 0) {
-        // stable pick; change to 'random' if you want random variants
-        const chosen = pickSpriteVariant(matches, 'first');
-        return chosen?.path;
+    for (const folder of folders) {
+        const sprites = await getSpritesForCharacter(folder);
+        const matches = sprites.filter(s => String(s.label).toLowerCase() === target);
+        if (matches.length > 0) {
+            const chosen = pickSpriteVariant(matches, 'first');
+            return chosen?.path;
+        }
     }
 
     // 2) If no expression sprites exist, fallback to avatar thumbnail
@@ -574,14 +586,11 @@ const handleContext = async(evt, fullName, wrap) => {
                 return;
             }
 
-            // Costumes plugin preview probing (temporary, until moved to ST built-in /costume workflow)
             const urls = await Promise.all(costumes.map(async (costumePath) => {
-                for (const ext of settings.extensions) {
-                    const url = `/characters/${costumePath}/${settings.expression}.${ext}`;
-                    const resp = await fetch(url, { method: 'HEAD', headers: getRequestHeaders() });
-                    if (resp.ok) return url;
-                }
-                return undefined;
+                const sprites = await getSpritesForCharacter(costumePath);
+                const matches = sprites.filter(s => String(s.label).toLowerCase() === String(settings.expression).toLowerCase());
+                const chosen = pickSpriteVariant(matches, 'first');
+                return chosen?.path;
             }));
 
             let i = -1;
@@ -708,8 +717,8 @@ const updateMembers = async() => {
         for (const name of added) {
             const namePart = name.split('::')[0];
 
-            if (settings.costumes?.[namePart]) {
-                executeSlashCommandsWithOptions(`/costume ${settings.costumes[namePart]}`);
+            if (settings.costumes?.[name]) {
+                executeSlashCommandsWithOptions(`/costume ${settings.costumes[name]}`);
             }
 
             nameList.push(name);
@@ -725,7 +734,7 @@ const updateMembers = async() => {
                     img.setAttribute('data-character', name);
 
                     // IMPORTANT: Use sprites endpoint for expression images
-                    img.src = await findImage(settings.costumes?.[namePart] ?? namePart, name) ?? '';
+                    img.src = await findImage(namePart, name) ?? '';
 
                     wrap.append(img);
                 }
@@ -759,7 +768,7 @@ const updateMembers = async() => {
             // We do NOT clear sprite cache on expression change. We just pick a different label from cached list.
             if (expression != settings.expression || extensions != settings.extensions.join(', ')) {
                 const namePart = img.getAttribute('data-character').split('::')[0];
-                img.src = await findImage(settings.costumes?.[namePart] ?? namePart, img.getAttribute('data-character')) ?? '';
+                img.src = await findImage(namePart, img.getAttribute('data-character')) ?? '';
             }
         });
 

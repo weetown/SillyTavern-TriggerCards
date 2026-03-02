@@ -295,6 +295,20 @@ export class Settings {
         return [...merged];
     }
 
+    getCostumeFoldersForCharacter(characterName) {
+        const values = Object.values(this.costumes ?? {});
+        return [...new Set(values.filter(folder => String(folder).startsWith(`${characterName}/`)))];
+    }
+
+    getFolderTargetsForCard(characterName, cardKey, selectedFolder = null) {
+        const targets = [];
+        if (selectedFolder) targets.push(selectedFolder);
+        const mapped = this.costumes?.[cardKey];
+        if (mapped && !targets.includes(mapped)) targets.push(mapped);
+        if (!targets.includes(characterName)) targets.push(characterName);
+        return targets;
+    }
+
     getCharacterExtensions(characterName) {
         const context = getContext();
         const character = context.characters.find(c => c?.name === characterName);
@@ -311,17 +325,17 @@ export class Settings {
         context.characters[charIndex].data.extensions[Settings.EXTENSION_KEY] = extensionData;
     }
 
-    async fetchSprites(characterName) {
-        const res = await fetch(`/api/sprites/get?name=${encodeURIComponent(characterName)}`, {
+    async fetchSprites(folderName) {
+        const res = await fetch(`/api/sprites/get?name=${encodeURIComponent(folderName)}`, {
             headers: getRequestHeaders(),
         });
         if (!res.ok) return [];
         return await res.json();
     }
 
-    buildSpriteUploadForm(characterName, spriteName, file, fileField = 'file') {
+    buildSpriteUploadForm(folderName, spriteName, file, fileField = 'file') {
         const form = new FormData();
-        form.append('name', characterName);
+        form.append('name', folderName);
         form.append('label', spriteName);
         form.append('spriteName', spriteName);
         form.append(fileField, file);
@@ -339,19 +353,19 @@ export class Settings {
         });
     }
 
-    async uploadSpriteWithFallback(characterName, spriteName, file) {
+    async uploadSpriteWithFallback(folderName, spriteName, file) {
         // ST builds may wire different multer field names for sprite upload.
-        const first = await this.postSpriteUpload(this.buildSpriteUploadForm(characterName, spriteName, file, 'file'));
+        const first = await this.postSpriteUpload(this.buildSpriteUploadForm(folderName, spriteName, file, 'file'));
         if (first.ok) return first;
 
         if (![400, 500].includes(first.status)) {
             return first;
         }
 
-        return await this.postSpriteUpload(this.buildSpriteUploadForm(characterName, spriteName, file, 'avatar'));
+        return await this.postSpriteUpload(this.buildSpriteUploadForm(folderName, spriteName, file, 'avatar'));
     }
 
-    async renderSpriteRows(content, characterName) {
+    async renderSpriteRows(content, characterName, selectedFolder = null) {
         content.innerHTML = '';
         if (!characterName) {
             content.textContent = 'Select a character to manage Trigger Cards sprites.';
@@ -360,7 +374,6 @@ export class Settings {
 
         const extension = this.getCharacterExtensions(characterName);
         const overrides = extension.spriteOverrides ?? {};
-        const sprites = await this.fetchSprites(characterName);
         const cards = this.getCardEntriesForCharacter(characterName, overrides);
 
         if (!cards.length) {
@@ -372,8 +385,18 @@ export class Settings {
             const spriteName = `tc_${this.safeKey(cardKey)}`;
             const overrideLabel = overrides[cardKey];
             const activeLabel = overrideLabel ?? String(this.expression ?? '').toLowerCase();
-            const matches = sprites.filter(s => String(s.label).toLowerCase() === String(activeLabel).toLowerCase());
-            const preview = matches[0]?.path ?? '';
+            const targets = this.getFolderTargetsForCard(characterName, cardKey, selectedFolder);
+            let preview = '';
+            let effectiveFolder = targets[0] ?? characterName;
+            for (const targetFolder of targets) {
+                const sprites = await this.fetchSprites(targetFolder);
+                const matches = sprites.filter(s => String(s.label).toLowerCase() === String(activeLabel).toLowerCase());
+                if (matches.length > 0) {
+                    preview = matches[0]?.path ?? '';
+                    effectiveFolder = targetFolder;
+                    break;
+                }
+            }
 
             const row = document.createElement('div');
             row.classList.add('sttc--sprite-row');
@@ -388,7 +411,10 @@ export class Settings {
             source.textContent = overrideLabel
                 ? `Using custom sprite (${overrideLabel})`
                 : `Using emotion sprite (${this.expression})`;
-            info.append(title, source);
+            const folderHint = document.createElement('div');
+            folderHint.classList.add('sttc--sprite-source');
+            folderHint.textContent = `Folder: ${effectiveFolder}`;
+            info.append(title, source, folderHint);
 
             const img = document.createElement('img');
             img.classList.add('sttc--sprite-preview');
@@ -426,7 +452,7 @@ export class Settings {
                 const file = fileInput.files?.[0];
                 if (!file) return toastr.warning('Pick an image first.');
                 try {
-                    const response = await this.uploadSpriteWithFallback(characterName, spriteName, file);
+                    const response = await this.uploadSpriteWithFallback(effectiveFolder, spriteName, file);
                     if (!response.ok) {
                         const details = (await response.text()).trim();
                         toastr.error(`Upload failed (${response.status}): ${(details || 'No server details').slice(0, 300)}`);
@@ -435,7 +461,7 @@ export class Settings {
                     const next = { ...overrides, [cardKey]: spriteName };
                     await this.saveCharacterExtensions(characterName, { ...extension, spriteOverrides: next });
                     this.save(true);
-                    await this.renderSpriteRows(content, characterName);
+                    await this.renderSpriteRows(content, characterName, selectedFolder);
                 } catch (ex) {
                     toastr.error(`Upload failed: ${ex?.message ?? String(ex)}`);
                 }
@@ -450,7 +476,7 @@ export class Settings {
                 const response = await fetch('/api/sprites/delete', {
                     method: 'POST',
                     headers: getRequestHeaders(),
-                    body: JSON.stringify({ name: characterName, label: spriteName, spriteName }),
+                    body: JSON.stringify({ name: effectiveFolder, label: spriteName, spriteName }),
                 });
                 if (!response.ok && response.status !== 404) {
                     toastr.error(`Delete failed: ${response.status}`);
@@ -460,7 +486,7 @@ export class Settings {
                 delete next[cardKey];
                 await this.saveCharacterExtensions(characterName, { ...extension, spriteOverrides: next });
                 this.save(true);
-                await this.renderSpriteRows(content, characterName);
+                await this.renderSpriteRows(content, characterName, selectedFolder);
             });
 
             controls.append(fileInput, choose, fileLabel, upload, remove);
@@ -493,13 +519,56 @@ export class Settings {
         const content = document.createElement('div');
         content.classList.add('sttc--sprite-manager-list');
 
+        const folderWrap = document.createElement('div');
+        folderWrap.classList.add('sttc--sprite-folder-wrap');
+        const folderSelect = document.createElement('select');
+        folderSelect.classList.add('text_pole');
+        const folderHint = document.createElement('div');
+        folderHint.classList.add('sttc--sprite-folder-hint');
+
+        const refreshFolderOptions = () => {
+            folderSelect.innerHTML = '';
+            if (!this.spriteManagerCharacter) {
+                const none = document.createElement('option');
+                none.value = '';
+                none.textContent = '-- Select character first --';
+                folderSelect.append(none);
+                folderSelect.disabled = true;
+                folderHint.textContent = '';
+                return null;
+            }
+
+            folderSelect.disabled = false;
+            const root = document.createElement('option');
+            root.value = this.spriteManagerCharacter;
+            root.textContent = `${this.spriteManagerCharacter} (root)`;
+            folderSelect.append(root);
+            for (const folder of this.getCostumeFoldersForCharacter(this.spriteManagerCharacter)) {
+                const option = document.createElement('option');
+                option.value = folder;
+                option.textContent = folder;
+                folderSelect.append(option);
+            }
+            folderHint.textContent = `Sprite target: ${folderSelect.value}`;
+            return folderSelect.value;
+        };
+
         select.addEventListener('change', async () => {
             this.spriteManagerCharacter = select.value || null;
-            await this.renderSpriteRows(content, this.spriteManagerCharacter);
+            const selectedFolder = refreshFolderOptions();
+            await this.renderSpriteRows(content, this.spriteManagerCharacter, selectedFolder);
         });
 
-        wrap.append(select, content);
-        this.renderSpriteRows(content, this.spriteManagerCharacter);
+        folderSelect.addEventListener('change', async () => {
+            folderHint.textContent = `Sprite target: ${folderSelect.value}`;
+            await this.renderSpriteRows(content, this.spriteManagerCharacter, folderSelect.value || null);
+        });
+
+        const selectedFolder = refreshFolderOptions();
+        folderWrap.append(folderSelect, folderHint);
+
+        wrap.append(select, folderWrap, content);
+        this.renderSpriteRows(content, this.spriteManagerCharacter, selectedFolder);
         return wrap;
     }
 
