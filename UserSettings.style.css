@@ -228,6 +228,17 @@
                         flex-wrap: wrap;
                         justify-content: flex-end;
                     }
+                    .sttc--sprite-file {
+                        display: none;
+                    }
+                    .sttc--sprite-file-label {
+                        max-width: 220px;
+                        white-space: nowrap;
+                        overflow: hidden;
+                        text-overflow: ellipsis;
+                        opacity: 0.85;
+                        font-size: 0.9em;
+                    }
                 }
             }
         }

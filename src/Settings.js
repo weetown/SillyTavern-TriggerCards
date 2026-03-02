@@ -278,6 +278,23 @@ export class Settings {
         return [context.characters[context.characterId]?.name].filter(Boolean);
     }
 
+    getCardEntriesForCharacter(characterName, overrides = {}) {
+        const allEntries = this.getCardEntries();
+        const matchingEntries = allEntries.filter((entry) => {
+            const baseName = String(entry).split('::')[0];
+            return baseName === characterName;
+        });
+
+        const overrideEntries = Object.keys(overrides);
+        const merged = new Set([...matchingEntries, ...overrideEntries]);
+
+        if (merged.size === 0 && characterName) {
+            merged.add(characterName);
+        }
+
+        return [...merged];
+    }
+
     getCharacterExtensions(characterName) {
         const context = getContext();
         const character = context.characters.find(c => c?.name === characterName);
@@ -312,7 +329,7 @@ export class Settings {
         const extension = this.getCharacterExtensions(characterName);
         const overrides = extension.spriteOverrides ?? {};
         const sprites = await this.fetchSprites(characterName);
-        const cards = this.getCardEntries();
+        const cards = this.getCardEntriesForCharacter(characterName, overrides);
 
         if (!cards.length) {
             content.textContent = 'No Trigger Cards found. Configure Members first.';
@@ -352,6 +369,22 @@ export class Settings {
             const fileInput = document.createElement('input');
             fileInput.type = 'file';
             fileInput.accept = 'image/*';
+            fileInput.classList.add('sttc--sprite-file');
+
+            const fileLabel = document.createElement('span');
+            fileLabel.classList.add('sttc--sprite-file-label');
+            fileLabel.textContent = 'No image selected';
+
+            const choose = document.createElement('button');
+            choose.type = 'button';
+            choose.classList.add('menu_button');
+            choose.textContent = 'Choose image';
+            choose.addEventListener('click', () => fileInput.click());
+
+            fileInput.addEventListener('change', () => {
+                const file = fileInput.files?.[0];
+                fileLabel.textContent = file?.name ?? 'No image selected';
+            });
 
             const upload = document.createElement('button');
             upload.type = 'button';
@@ -405,7 +438,7 @@ export class Settings {
                 await this.renderSpriteRows(content, characterName);
             });
 
-            controls.append(fileInput, upload, remove);
+            controls.append(fileInput, choose, fileLabel, upload, remove);
             row.append(img, info, controls);
             content.append(row);
         }
