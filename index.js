@@ -153,6 +153,14 @@ const SPRITE_CACHE_TTL = 30_000; // ms (does NOT get cleared on expression chang
 
 const clearSpriteCache = () => spriteListCache.clear();
 
+const TRIGGER_CARDS_EXTENSION_KEY = 'trigger_cards';
+
+const getSpriteOverridesForCharacter = (characterName) => {
+    const context = getContext();
+    const character = context?.characters?.find(c => c?.name === characterName);
+    return character?.data?.extensions?.[TRIGGER_CARDS_EXTENSION_KEY]?.spriteOverrides ?? {};
+};
+
 const getSpritesForCharacter = async (name) => {
     const now = Date.now();
     const cached = spriteListCache.get(name);
@@ -214,9 +222,22 @@ const pickSpriteVariant = (matches, mode = 'first') => {
  * Main resolver used everywhere in the extension.
  * Name may be "Character" or "Character/subfolder".
  */
-const findImage = async (name) => {
+const findImage = async (name, cardKey = null) => {
     // 1) Ask ST for list of sprites that exist for this character folder
     const sprites = await getSpritesForCharacter(name);
+
+    const characterName = name.includes('/') ? name.split('/')[0] : name;
+    if (cardKey) {
+        const overrides = getSpriteOverridesForCharacter(characterName);
+        const overrideLabel = overrides?.[cardKey];
+        if (overrideLabel) {
+            const overrideMatches = sprites.filter(s => String(s.label).toLowerCase() === String(overrideLabel).toLowerCase());
+            if (overrideMatches.length > 0) {
+                const chosenOverride = pickSpriteVariant(overrideMatches, 'first');
+                return chosenOverride?.path;
+            }
+        }
+    }
 
     // labels from server are lowercased; normalize ours too
     const target = String(settings.expression ?? '').toLowerCase();
@@ -230,7 +251,7 @@ const findImage = async (name) => {
     }
 
     // 2) If no expression sprites exist, fallback to avatar thumbnail
-    const thumb = getAvatarThumb(name.includes('/') ? name.split('/')[0] : name);
+    const thumb = getAvatarThumb(characterName);
     if (thumb) return thumb;
 
     // 3) Nothing found
@@ -704,7 +725,7 @@ const updateMembers = async() => {
                     img.setAttribute('data-character', name);
 
                     // IMPORTANT: Use sprites endpoint for expression images
-                    img.src = await findImage(settings.costumes?.[namePart] ?? namePart) ?? '';
+                    img.src = await findImage(settings.costumes?.[namePart] ?? namePart, name) ?? '';
 
                     wrap.append(img);
                 }
@@ -738,7 +759,7 @@ const updateMembers = async() => {
             // We do NOT clear sprite cache on expression change. We just pick a different label from cached list.
             if (expression != settings.expression || extensions != settings.extensions.join(', ')) {
                 const namePart = img.getAttribute('data-character').split('::')[0];
-                img.src = await findImage(settings.costumes?.[namePart] ?? namePart) ?? '';
+                img.src = await findImage(settings.costumes?.[namePart] ?? namePart, img.getAttribute('data-character')) ?? '';
             }
         });
 
@@ -754,6 +775,7 @@ const updateMembers = async() => {
 
 
 const restart = async()=>{
+    clearSpriteCache();
     await end();
     start();
 };

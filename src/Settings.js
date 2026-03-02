@@ -1,16 +1,19 @@
-import { chat_metadata } from '../../../../../script.js';
-import { saveMetadataDebounced } from '../../../../extensions.js';
+import { chat_metadata, getRequestHeaders } from '../../../../../script.js';
+import { getContext, saveMetadataDebounced } from '../../../../extensions.js';
 import { delay } from '../../../../utils.js';
 import { quickReplyApi } from '../../../quick-reply/index.js';
 import { groupId } from '../index.js';
 import { ActionSetting } from './settings/ActionSetting.js';
 import { BaseSetting } from './settings/BaseSetting.js';
 import { CheckboxSetting } from './settings/CheckboxSetting.js';
+import { CustomSetting } from './settings/CustomSetting.js';
 import { SelectSetting } from './settings/SelectSetting.js';
 import { SettingAction } from './settings/SettingAction.js';
 import { TextSetting } from './settings/TextSetting.js';
 
 export class Settings {
+    static EXTENSION_KEY = 'trigger_cards';
+
     /**@type {boolean} */ isEnabled = groupId ? true : false;
     /**@type {string} */ actionQrSet = null;
     /**@type {string} */ memberQrSet = null;
@@ -23,6 +26,7 @@ export class Settings {
     /**@type {{[index:string]:string}} */ costumes = {};
 
     /**@type {BaseSetting[]}*/ settingList = [];
+    /** @type {string | null} */ spriteManagerCharacter = null;
     get isActive() {
         return this.dom.classList.contains('sttc--active');
     }
@@ -225,6 +229,220 @@ export class Settings {
                 },
             }));
         }
+        { // sprite manager
+            this.settingList.push(CustomSetting.fromProps({
+                id: 'sttc--spriteManager',
+                name: 'Sprite Manager',
+                description: 'Manage Trigger Cards custom sprites stored in the selected character sprite folder.',
+                category: ['Sprite Manager'],
+                renderCallback: () => this.renderSpriteManager(),
+                getValueCallback: () => null,
+                setValueCallback: () => null,
+            }));
+        }
+    }
+
+    safeKey(cardKey) {
+        const normalized = String(cardKey ?? '')
+            .toLowerCase()
+            .replace(/\s+/g, '_')
+            .replace(/[^a-z0-9_-]/g, '');
+
+        if (normalized) return normalized;
+
+        let hash = 0;
+        const source = String(cardKey ?? '');
+        for (let i = 0; i < source.length; i++) {
+            hash = (hash * 31 + source.charCodeAt(i)) >>> 0;
+        }
+        return `key_${hash.toString(16).padStart(8, '0')}`;
+    }
+
+    getCardEntries() {
+        if (this.memberList?.length) return this.memberList;
+        if (this.memberQrSet) {
+            try {
+                return quickReplyApi.listQuickReplies(this.memberQrSet);
+            } catch {
+                return [];
+            }
+        }
+        const context = getContext();
+        if (groupId) {
+            const group = context.groups.find(it => it.id == groupId);
+            if (!group) return [];
+            return group.members
+                .map(m => context.characters.find(c => c.avatar == m)?.name)
+                .filter(Boolean);
+        }
+        return [context.characters[context.characterId]?.name].filter(Boolean);
+    }
+
+    getCharacterExtensions(characterName) {
+        const context = getContext();
+        const character = context.characters.find(c => c?.name === characterName);
+        return character?.data?.extensions?.[Settings.EXTENSION_KEY] ?? {};
+    }
+
+    async saveCharacterExtensions(characterName, extensionData) {
+        const context = getContext();
+        const charIndex = context.characters.findIndex(c => c?.name === characterName);
+        if (charIndex < 0) throw new Error(`Character not found: ${characterName}`);
+        await context.writeExtensionField(charIndex, Settings.EXTENSION_KEY, extensionData);
+        context.characters[charIndex].data ??= {};
+        context.characters[charIndex].data.extensions ??= {};
+        context.characters[charIndex].data.extensions[Settings.EXTENSION_KEY] = extensionData;
+    }
+
+    async fetchSprites(characterName) {
+        const res = await fetch(`/api/sprites/get?name=${encodeURIComponent(characterName)}`, {
+            headers: getRequestHeaders(),
+        });
+        if (!res.ok) return [];
+        return await res.json();
+    }
+
+    async renderSpriteRows(content, characterName) {
+        content.innerHTML = '';
+        if (!characterName) {
+            content.textContent = 'Select a character to manage Trigger Cards sprites.';
+            return;
+        }
+
+        const extension = this.getCharacterExtensions(characterName);
+        const overrides = extension.spriteOverrides ?? {};
+        const sprites = await this.fetchSprites(characterName);
+        const cards = this.getCardEntries();
+
+        if (!cards.length) {
+            content.textContent = 'No Trigger Cards found. Configure Members first.';
+            return;
+        }
+
+        for (const cardKey of cards) {
+            const spriteName = `tc_${this.safeKey(cardKey)}`;
+            const overrideLabel = overrides[cardKey];
+            const activeLabel = overrideLabel ?? String(this.expression ?? '').toLowerCase();
+            const matches = sprites.filter(s => String(s.label).toLowerCase() === String(activeLabel).toLowerCase());
+            const preview = matches[0]?.path ?? '';
+
+            const row = document.createElement('div');
+            row.classList.add('sttc--sprite-row');
+
+            const info = document.createElement('div');
+            info.classList.add('sttc--sprite-info');
+            const title = document.createElement('div');
+            title.classList.add('sttc--sprite-name');
+            title.textContent = cardKey;
+            const source = document.createElement('div');
+            source.classList.add('sttc--sprite-source');
+            source.textContent = overrideLabel
+                ? `Using custom sprite (${overrideLabel})`
+                : `Using emotion sprite (${this.expression})`;
+            info.append(title, source);
+
+            const img = document.createElement('img');
+            img.classList.add('sttc--sprite-preview');
+            img.src = preview;
+            img.alt = `${cardKey} preview`;
+
+            const controls = document.createElement('div');
+            controls.classList.add('sttc--sprite-controls');
+
+            const fileInput = document.createElement('input');
+            fileInput.type = 'file';
+            fileInput.accept = 'image/*';
+
+            const upload = document.createElement('button');
+            upload.type = 'button';
+            upload.classList.add('menu_button');
+            upload.textContent = 'Upload/Replace';
+            upload.addEventListener('click', async () => {
+                const file = fileInput.files?.[0];
+                if (!file) return toastr.warning('Pick an image first.');
+                const form = new FormData();
+                form.append('name', characterName);
+                form.append('label', spriteName);
+                form.append('spriteName', spriteName);
+                form.append('file', file);
+                const headers = getRequestHeaders();
+                delete headers['Content-Type'];
+                delete headers['content-type'];
+                const response = await fetch('/api/sprites/upload', {
+                    method: 'POST',
+                    headers,
+                    body: form,
+                });
+                if (!response.ok) {
+                    toastr.error(`Upload failed: ${response.status}`);
+                    return;
+                }
+                const next = { ...overrides, [cardKey]: spriteName };
+                await this.saveCharacterExtensions(characterName, { ...extension, spriteOverrides: next });
+                this.save(true);
+                await this.renderSpriteRows(content, characterName);
+            });
+
+            const remove = document.createElement('button');
+            remove.type = 'button';
+            remove.classList.add('menu_button');
+            remove.textContent = 'Remove custom';
+            remove.style.display = overrideLabel ? '' : 'none';
+            remove.addEventListener('click', async () => {
+                const response = await fetch('/api/sprites/delete', {
+                    method: 'POST',
+                    headers: getRequestHeaders(),
+                    body: JSON.stringify({ name: characterName, label: spriteName, spriteName }),
+                });
+                if (!response.ok && response.status !== 404) {
+                    toastr.error(`Delete failed: ${response.status}`);
+                    return;
+                }
+                const next = { ...overrides };
+                delete next[cardKey];
+                await this.saveCharacterExtensions(characterName, { ...extension, spriteOverrides: next });
+                this.save(true);
+                await this.renderSpriteRows(content, characterName);
+            });
+
+            controls.append(fileInput, upload, remove);
+            row.append(img, info, controls);
+            content.append(row);
+        }
+    }
+
+    renderSpriteManager() {
+        const wrap = document.createElement('div');
+        wrap.classList.add('sttc--sprite-manager');
+        const context = getContext();
+        const chars = context.characters.map(c => c.name).filter(Boolean);
+
+        const select = document.createElement('select');
+        select.classList.add('text_pole');
+        const initial = document.createElement('option');
+        initial.value = '';
+        initial.textContent = '-- Select character --';
+        select.append(initial);
+        for (const name of chars) {
+            const option = document.createElement('option');
+            option.value = name;
+            option.textContent = name;
+            select.append(option);
+        }
+        this.spriteManagerCharacter ??= context.characters[context.characterId]?.name ?? '';
+        if (this.spriteManagerCharacter) select.value = this.spriteManagerCharacter;
+
+        const content = document.createElement('div');
+        content.classList.add('sttc--sprite-manager-list');
+
+        select.addEventListener('change', async () => {
+            this.spriteManagerCharacter = select.value || null;
+            await this.renderSpriteRows(content, this.spriteManagerCharacter);
+        });
+
+        wrap.append(select, content);
+        this.renderSpriteRows(content, this.spriteManagerCharacter);
+        return wrap;
     }
 
     save(isRestart = false) {
