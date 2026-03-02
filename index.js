@@ -158,7 +158,14 @@ const TRIGGER_CARDS_EXTENSION_KEY = 'trigger_cards';
 const getSpriteOverridesForCharacter = (characterName) => {
     const context = getContext();
     const character = context?.characters?.find(c => c?.name === characterName);
-    return character?.data?.extensions?.[TRIGGER_CARDS_EXTENSION_KEY]?.spriteOverrides ?? {};
+    const ext = character?.data?.extensions?.[TRIGGER_CARDS_EXTENSION_KEY] ?? {};
+    const imageOverrides = ext.imageOverrides ?? {};
+    const spriteOverrides = ext.spriteOverrides ?? {};
+    const merged = { ...imageOverrides };
+    for (const [key, value] of Object.entries(spriteOverrides)) {
+        if (!merged[key]) merged[key] = { type: 'sprite', label: value };
+    }
+    return merged;
 };
 
 const getSpriteFoldersForCard = (characterName, cardKey = null) => {
@@ -237,7 +244,11 @@ const findImage = async (name, cardKey = null) => {
 
     if (cardKey) {
         const overrides = getSpriteOverridesForCharacter(characterName);
-        const overrideLabel = overrides?.[cardKey];
+        const override = overrides?.[cardKey];
+        if (override?.type === 'gallery' && override?.path) {
+            return override.path;
+        }
+        const overrideLabel = override?.type === 'sprite' ? override.label : null;
         if (overrideLabel) {
             for (const folder of folders) {
                 const sprites = await getSpritesForCharacter(folder);
@@ -796,6 +807,11 @@ const start = () => {
 
     root = document.createElement('div'); {
         root.classList.add('sttc--root');
+        root.style.setProperty('--sttc-align', settings.align ?? 'center');
+        root.style.setProperty('--sttc-shape-radius', settings.imageShape === 'circle' ? '999px' : '8px');
+        root.style.setProperty('--sttc-bg', settings.backgroundMode === 'transparent' ? 'transparent' : (settings.backgroundColor ?? '#00000059'));
+        root.style.setProperty('--sttc-image-height', `${Math.min(25, Math.max(1, Number(settings.imageHeightVh) || 10))}vh`);
+        root.style.setProperty('--sttc-image-rendering', settings.antiAlias ? 'auto' : 'pixelated');
 
         const toggle = document.createElement('button'); {
             toggle.type = 'button';

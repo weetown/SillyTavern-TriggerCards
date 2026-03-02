@@ -6,6 +6,7 @@ import { groupId } from '../index.js';
 import { ActionSetting } from './settings/ActionSetting.js';
 import { BaseSetting } from './settings/BaseSetting.js';
 import { CheckboxSetting } from './settings/CheckboxSetting.js';
+import { ColorSetting } from './settings/ColorSetting.js';
 import { CustomSetting } from './settings/CustomSetting.js';
 import { SelectSetting } from './settings/SelectSetting.js';
 import { SettingAction } from './settings/SettingAction.js';
@@ -24,6 +25,12 @@ export class Settings {
     /**@type {boolean} */ mute = true;
     /**@type {boolean} */ isCollapsed = false;
     /**@type {{[index:string]:string}} */ costumes = {};
+    /**@type {'left'|'center'|'right'} */ align = 'center';
+    /**@type {'square'|'circle'} */ imageShape = 'square';
+    /**@type {'solid'|'transparent'} */ backgroundMode = 'solid';
+    /**@type {string} */ backgroundColor = '#00000059';
+    /**@type {number} */ imageHeightVh = 10;
+    /**@type {boolean} */ antiAlias = true;
 
     /**@type {BaseSetting[]}*/ settingList = [];
     /** @type {string | null} */ spriteManagerCharacter = null;
@@ -56,6 +63,12 @@ export class Settings {
             mute: this.mute,
             isCollapsed: this.isCollapsed,
             costumes: this.costumes,
+            align: this.align,
+            imageShape: this.imageShape,
+            backgroundMode: this.backgroundMode,
+            backgroundColor: this.backgroundColor,
+            imageHeightVh: this.imageHeightVh,
+            antiAlias: this.antiAlias,
         };
     }
 
@@ -99,6 +112,12 @@ export class Settings {
                                 mute: true,
                                 isCollapsed: false,
                                 costumes: {},
+                                align: 'center',
+                                imageShape: 'square',
+                                backgroundMode: 'solid',
+                                backgroundColor: '#00000059',
+                                imageHeightVh: 10,
+                                antiAlias: true,
                             });
                             this.registerSettings();
                             await this.init();
@@ -227,6 +246,78 @@ export class Settings {
                     this.isCollapsed = it.value;
                     this.save();
                 },
+            }));
+            this.settingList.push(SelectSetting.fromProps({ id: 'sttc--align',
+                name: 'Card Alignment',
+                description: 'Horizontal placement of Trigger Cards tray.',
+                category: ['Layout'],
+                initialValue: this.align,
+                optionList: [
+                    { value:'left', label:'Left' },
+                    { value:'center', label:'Center' },
+                    { value:'right', label:'Right' },
+                ],
+                onChange: (it)=>{
+                    this.align = it.value;
+                    this.save(true);
+                },
+            }));
+            this.settingList.push(SelectSetting.fromProps({ id: 'sttc--shape',
+                name: 'Image Shape',
+                description: 'Shape outline for Trigger Cards images.',
+                category: ['Layout'],
+                initialValue: this.imageShape,
+                optionList: [
+                    { value:'square', label:'Square' },
+                    { value:'circle', label:'Circle' },
+                ],
+                onChange: (it)=>{
+                    this.imageShape = it.value;
+                    this.save(true);
+                },
+            }));
+            this.settingList.push(SelectSetting.fromProps({ id: 'sttc--bgmode',
+                name: 'Background Mode',
+                description: 'Tray background mode.',
+                category: ['Layout'],
+                initialValue: this.backgroundMode,
+                optionList: [
+                    { value:'solid', label:'Solid' },
+                    { value:'transparent', label:'Transparent' },
+                ],
+                onChange: (it)=>{
+                    this.backgroundMode = it.value;
+                    this.save(true);
+                },
+            }));
+            this.settingList.push(ColorSetting.fromProps({ id: 'sttc--bgcolor',
+                name: 'Background Color',
+                description: 'Solid background color used when background mode is solid.',
+                category: ['Layout'],
+                initialValue: this.backgroundColor,
+                onChange: (it)=>{
+                    this.backgroundColor = it.value;
+                    this.save(true);
+                },
+            }));
+            this.settingList.push(CheckboxSetting.fromProps({ id: 'sttc--antialias',
+                name: 'Anti-alias Images',
+                description: 'Disable for pixel-art style rendering.',
+                category: ['Layout'],
+                initialValue: this.antiAlias,
+                onChange: (it)=>{
+                    this.antiAlias = it.value;
+                    this.save(true);
+                },
+            }));
+            this.settingList.push(CustomSetting.fromProps({
+                id: 'sttc--scale',
+                name: 'Image Height (vh)',
+                description: 'Set image height with slider + input (max 25vh).',
+                category: ['Layout'],
+                renderCallback: () => this.renderImageScaleControl(),
+                getValueCallback: () => this.imageHeightVh,
+                setValueCallback: (value) => { this.imageHeightVh = value; },
             }));
         }
         { // sprite manager
@@ -365,6 +456,115 @@ export class Settings {
         return await this.postSpriteUpload(this.buildSpriteUploadForm(folderName, spriteName, file, 'avatar'));
     }
 
+    async fetchGalleryItems(folderName) {
+        try {
+            const response = await fetch('/api/images/list', {
+                method: 'POST',
+                headers: getRequestHeaders(),
+                body: JSON.stringify({
+                    folder: folderName,
+                    sortField: 'date',
+                    sortOrder: 'desc',
+                    type: 3,
+                }),
+            });
+            if (!response.ok) return [];
+            const files = await response.json();
+            return Array.isArray(files) ? files.map(file => ({
+                name: file,
+                path: `user/images/${encodeURIComponent(folderName)}/${encodeURIComponent(file)}`,
+            })) : [];
+        } catch {
+            return [];
+        }
+    }
+
+    getImageOverrides(extension) {
+        const imageOverrides = extension.imageOverrides ?? {};
+        const spriteOverrides = extension.spriteOverrides ?? {};
+        const merged = { ...imageOverrides };
+        for (const [key, value] of Object.entries(spriteOverrides)) {
+            if (!merged[key]) merged[key] = { type: 'sprite', label: value };
+        }
+        return merged;
+    }
+
+    async showGalleryModal(item, onUse) {
+        const blocker = document.createElement('div');
+        blocker.classList.add('sttc--gallery-modal');
+
+        const modal = document.createElement('div');
+        modal.classList.add('sttc--gallery-modal-inner');
+
+        const close = () => {
+            document.removeEventListener('keydown', onKeyDown, true);
+            blocker.remove();
+        };
+        const onKeyDown = (e) => {
+            if (e.key === 'Escape') close();
+        };
+
+        const closeBtn = document.createElement('button');
+        closeBtn.type = 'button';
+        closeBtn.classList.add('menu_button');
+        closeBtn.textContent = '✕';
+        closeBtn.addEventListener('click', close);
+
+        const image = document.createElement('img');
+        image.src = item.path;
+        image.classList.add('sttc--gallery-modal-image');
+
+        const actions = document.createElement('div');
+        actions.classList.add('sttc--gallery-modal-actions');
+
+        const useBtn = document.createElement('button');
+        useBtn.type = 'button';
+        useBtn.classList.add('menu_button');
+        useBtn.textContent = 'Use image';
+        useBtn.addEventListener('click', async () => {
+            await onUse(item);
+            close();
+        });
+
+        actions.append(useBtn, closeBtn);
+        modal.append(image, actions);
+        blocker.append(modal);
+        blocker.addEventListener('mousedown', (e) => {
+            if (e.target === blocker) close();
+        });
+        document.addEventListener('keydown', onKeyDown, true);
+        document.body.append(blocker);
+    }
+
+    renderImageScaleControl() {
+        const wrap = document.createElement('div');
+        wrap.classList.add('sttc--scale-control');
+        const slider = document.createElement('input');
+        slider.type = 'range';
+        slider.min = '1';
+        slider.max = '25';
+        slider.step = '0.5';
+        slider.value = String(this.imageHeightVh ?? 10);
+        const number = document.createElement('input');
+        number.type = 'number';
+        number.classList.add('text_pole');
+        number.min = '1';
+        number.max = '25';
+        number.step = '0.5';
+        number.value = slider.value;
+        const apply = (raw) => {
+            const n = Math.min(25, Math.max(1, Number(raw) || 10));
+            slider.value = String(n);
+            number.value = String(n);
+            this.imageHeightVh = n;
+            this.save(true);
+        };
+        slider.addEventListener('input', () => apply(slider.value));
+        number.addEventListener('change', () => apply(number.value));
+        wrap.append(slider, number);
+        return wrap;
+    }
+
     async renderSpriteRows(content, characterName, selectedFolder = null) {
         content.innerHTML = '';
         if (!characterName) {
@@ -373,8 +573,8 @@ export class Settings {
         }
 
         const extension = this.getCharacterExtensions(characterName);
-        const overrides = extension.spriteOverrides ?? {};
-        const cards = this.getCardEntriesForCharacter(characterName, overrides);
+        const imageOverrides = this.getImageOverrides(extension);
+        const cards = this.getCardEntriesForCharacter(characterName, imageOverrides);
 
         if (!cards.length) {
             content.textContent = 'No Trigger Cards found. Configure Members first.';
@@ -383,18 +583,22 @@ export class Settings {
 
         for (const cardKey of cards) {
             const spriteName = `tc_${this.safeKey(cardKey)}`;
-            const overrideLabel = overrides[cardKey];
-            const activeLabel = overrideLabel ?? String(this.expression ?? '').toLowerCase();
+            const override = imageOverrides[cardKey];
+            const activeLabel = (override?.type === 'sprite' ? override.label : null) ?? String(this.expression ?? '').toLowerCase();
             const targets = this.getFolderTargetsForCard(characterName, cardKey, selectedFolder);
             let preview = '';
             let effectiveFolder = targets[0] ?? characterName;
-            for (const targetFolder of targets) {
-                const sprites = await this.fetchSprites(targetFolder);
-                const matches = sprites.filter(s => String(s.label).toLowerCase() === String(activeLabel).toLowerCase());
-                if (matches.length > 0) {
-                    preview = matches[0]?.path ?? '';
-                    effectiveFolder = targetFolder;
-                    break;
+            if (override?.type === 'gallery' && override.path) {
+                preview = override.path;
+            } else {
+                for (const targetFolder of targets) {
+                    const sprites = await this.fetchSprites(targetFolder);
+                    const matches = sprites.filter(s => String(s.label).toLowerCase() === String(activeLabel).toLowerCase());
+                    if (matches.length > 0) {
+                        preview = matches[0]?.path ?? '';
+                        effectiveFolder = targetFolder;
+                        break;
+                    }
                 }
             }
 
@@ -408,8 +612,10 @@ export class Settings {
             title.textContent = cardKey;
             const source = document.createElement('div');
             source.classList.add('sttc--sprite-source');
-            source.textContent = overrideLabel
-                ? `Using custom sprite (${overrideLabel})`
+            source.textContent = override
+                ? (override.type === 'gallery'
+                    ? `Using gallery image (${override.path.split('/').pop()})`
+                    : `Using custom sprite (${override.label})`)
                 : `Using emotion sprite (${this.expression})`;
             const folderHint = document.createElement('div');
             folderHint.classList.add('sttc--sprite-source');
@@ -423,6 +629,14 @@ export class Settings {
 
             const controls = document.createElement('div');
             controls.classList.add('sttc--sprite-controls');
+
+            const sourceSelect = document.createElement('select');
+            sourceSelect.classList.add('text_pole');
+            sourceSelect.innerHTML = `
+                <option value="sprite">Sprite</option>
+                <option value="gallery">Gallery</option>
+            `;
+            sourceSelect.value = override?.type === 'gallery' ? 'gallery' : 'sprite';
 
             const fileInput = document.createElement('input');
             fileInput.type = 'file';
@@ -458,8 +672,8 @@ export class Settings {
                         toastr.error(`Upload failed (${response.status}): ${(details || 'No server details').slice(0, 300)}`);
                         return;
                     }
-                    const next = { ...overrides, [cardKey]: spriteName };
-                    await this.saveCharacterExtensions(characterName, { ...extension, spriteOverrides: next });
+                    const next = { ...imageOverrides, [cardKey]: { type: 'sprite', label: spriteName } };
+                    await this.saveCharacterExtensions(characterName, { ...extension, imageOverrides: next, spriteOverrides: undefined });
                     this.save(true);
                     await this.renderSpriteRows(content, characterName, selectedFolder);
                 } catch (ex) {
@@ -467,29 +681,70 @@ export class Settings {
                 }
             });
 
+            const galleryBtn = document.createElement('button');
+            galleryBtn.type = 'button';
+            galleryBtn.classList.add('menu_button');
+            galleryBtn.textContent = 'Open gallery';
+            galleryBtn.addEventListener('click', async () => {
+                const items = await this.fetchGalleryItems(effectiveFolder);
+                if (items.length === 0) {
+                    toastr.info('No gallery images found in this folder.');
+                    return;
+                }
+                const picker = document.createElement('div');
+                picker.classList.add('sttc--gallery-picker');
+                for (const item of items.slice(0, 30)) {
+                    const thumb = document.createElement('img');
+                    thumb.src = item.path;
+                    thumb.classList.add('sttc--gallery-thumb');
+                    thumb.title = item.name;
+                    thumb.addEventListener('click', async () => {
+                        await this.showGalleryModal(item, async (chosen) => {
+                            const next = { ...imageOverrides, [cardKey]: { type: 'gallery', path: chosen.path } };
+                            await this.saveCharacterExtensions(characterName, { ...extension, imageOverrides: next, spriteOverrides: undefined });
+                            this.save(true);
+                            picker.remove();
+                            await this.renderSpriteRows(content, characterName, selectedFolder);
+                        });
+                    });
+                    picker.append(thumb);
+                }
+                row.append(picker);
+            });
+
+            const cropBtn = document.createElement('button');
+            cropBtn.type = 'button';
+            cropBtn.classList.add('menu_button');
+            cropBtn.textContent = 'Crop → Sprite copy';
+            cropBtn.addEventListener('click', async () => {
+                toastr.info('Crop flow placeholder: use Gallery modal + Use image for now.');
+            });
+
             const remove = document.createElement('button');
             remove.type = 'button';
             remove.classList.add('menu_button');
             remove.textContent = 'Remove custom';
-            remove.style.display = overrideLabel ? '' : 'none';
+            remove.style.display = override ? '' : 'none';
             remove.addEventListener('click', async () => {
-                const response = await fetch('/api/sprites/delete', {
-                    method: 'POST',
-                    headers: getRequestHeaders(),
-                    body: JSON.stringify({ name: effectiveFolder, label: spriteName, spriteName }),
-                });
-                if (!response.ok && response.status !== 404) {
-                    toastr.error(`Delete failed: ${response.status}`);
-                    return;
+                if (override?.type === 'sprite') {
+                    const response = await fetch('/api/sprites/delete', {
+                        method: 'POST',
+                        headers: getRequestHeaders(),
+                        body: JSON.stringify({ name: effectiveFolder, label: spriteName, spriteName }),
+                    });
+                    if (!response.ok && response.status !== 404) {
+                        toastr.error(`Delete failed: ${response.status}`);
+                        return;
+                    }
                 }
-                const next = { ...overrides };
+                const next = { ...imageOverrides };
                 delete next[cardKey];
-                await this.saveCharacterExtensions(characterName, { ...extension, spriteOverrides: next });
+                await this.saveCharacterExtensions(characterName, { ...extension, imageOverrides: next, spriteOverrides: undefined });
                 this.save(true);
                 await this.renderSpriteRows(content, characterName, selectedFolder);
             });
 
-            controls.append(fileInput, choose, fileLabel, upload, remove);
+            controls.append(sourceSelect, fileInput, choose, fileLabel, upload, galleryBtn, cropBtn, remove);
             row.append(img, info, controls);
             content.append(row);
         }
@@ -503,6 +758,9 @@ export class Settings {
 
         const select = document.createElement('select');
         select.classList.add('text_pole');
+        const selectLabel = document.createElement('div');
+        selectLabel.classList.add('sttc--sprite-field-label');
+        selectLabel.textContent = 'Character';
         const initial = document.createElement('option');
         initial.value = '';
         initial.textContent = '-- Select character --';
@@ -521,6 +779,9 @@ export class Settings {
 
         const folderWrap = document.createElement('div');
         folderWrap.classList.add('sttc--sprite-folder-wrap');
+        const folderLabel = document.createElement('div');
+        folderLabel.classList.add('sttc--sprite-field-label');
+        folderLabel.textContent = 'Image folder target';
         const folderSelect = document.createElement('select');
         folderSelect.classList.add('text_pole');
         const folderHint = document.createElement('div');
@@ -541,7 +802,7 @@ export class Settings {
             folderSelect.disabled = false;
             const root = document.createElement('option');
             root.value = this.spriteManagerCharacter;
-            root.textContent = `${this.spriteManagerCharacter} (root)`;
+            root.textContent = `Character root folder (${this.spriteManagerCharacter})`;
             folderSelect.append(root);
             for (const folder of this.getCostumeFoldersForCharacter(this.spriteManagerCharacter)) {
                 const option = document.createElement('option');
@@ -565,9 +826,9 @@ export class Settings {
         });
 
         const selectedFolder = refreshFolderOptions();
-        folderWrap.append(folderSelect, folderHint);
+        folderWrap.append(folderLabel, folderSelect, folderHint);
 
-        wrap.append(select, folderWrap, content);
+        wrap.append(selectLabel, select, folderWrap, content);
         this.renderSpriteRows(content, this.spriteManagerCharacter, selectedFolder);
         return wrap;
     }
