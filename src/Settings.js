@@ -172,10 +172,11 @@ export class Settings {
         { // images
             this.settingList.push(SelectSetting.fromProps({ id: 'sttc--expression',
                 name: 'Expressions',
-                description: 'Character expression to use for trigger card.',
+                description: 'Character expression to use for trigger card (set to Disabled to skip expression lookup).',
                 category: ['Images'],
                 initialValue: this.expression,
                 optionList: [
+                    '',
                     'admiration',
                     'amusement',
                     'anger',
@@ -204,7 +205,7 @@ export class Settings {
                     'sadness',
                     'surprise',
                     'neutral',
-                ].map(it=>({ value:it, label:it })),
+                ].map(it=>({ value:it, label: it || '-- Disabled --' })),
                 onChange: (it)=>{
                     this.expression = it.value;
                     this.save();
@@ -264,7 +265,7 @@ export class Settings {
                 ],
                 onChange: (it)=>{
                     this.align = it.value;
-                    this.save(true);
+                    this.save();
                 },
             }));
             this.settingList.push(SelectSetting.fromProps({ id: 'sttc--shape',
@@ -278,7 +279,7 @@ export class Settings {
                 ],
                 onChange: (it)=>{
                     this.imageShape = it.value;
-                    this.save(true);
+                    this.save();
                 },
             }));
             this.settingList.push(SelectSetting.fromProps({ id: 'sttc--bgmode',
@@ -292,7 +293,7 @@ export class Settings {
                 ],
                 onChange: (it)=>{
                     this.backgroundMode = it.value;
-                    this.save(true);
+                    this.save();
                 },
             }));
             this.settingList.push(ColorSetting.fromProps({ id: 'sttc--bgcolor',
@@ -302,7 +303,7 @@ export class Settings {
                 initialValue: this.backgroundColor,
                 onChange: (it)=>{
                     this.backgroundColor = it.value;
-                    this.save(true);
+                    this.save();
                 },
             }));
             this.settingList.push(CheckboxSetting.fromProps({ id: 'sttc--antialias',
@@ -312,7 +313,7 @@ export class Settings {
                 initialValue: this.antiAlias,
                 onChange: (it)=>{
                     this.antiAlias = it.value;
-                    this.save(true);
+                    this.save();
                 },
             }));
             this.settingList.push(CustomSetting.fromProps({
@@ -330,7 +331,7 @@ export class Settings {
                 id: 'sttc--spriteManager',
                 name: 'Sprite Manager',
                 description: 'Manage Trigger Cards custom sprites stored in the selected character sprite folder.',
-                category: ['Sprite Manager'],
+                category: ['Images'],
                 renderCallback: () => this.renderSpriteManager(),
                 getValueCallback: () => null,
                 setValueCallback: () => null,
@@ -679,7 +680,7 @@ export class Settings {
                     }
                     const next = { ...imageOverrides, [cardKey]: { type: 'sprite', label: spriteName } };
                     await this.saveCharacterExtensions(characterName, { ...extension, imageOverrides: next, spriteOverrides: undefined });
-                    this.save(true);
+                    this.save();
                     await this.renderSpriteRows(content, characterName, selectedFolder);
                 } catch (ex) {
                     toastr.error(`Upload failed: ${ex?.message ?? String(ex)}`);
@@ -707,7 +708,7 @@ export class Settings {
                         await this.showGalleryModal(item, async (chosen) => {
                             const next = { ...imageOverrides, [cardKey]: { type: 'gallery', path: chosen.path } };
                             await this.saveCharacterExtensions(characterName, { ...extension, imageOverrides: next, spriteOverrides: undefined });
-                            this.save(true);
+                            this.save();
                             picker.remove();
                             await this.renderSpriteRows(content, characterName, selectedFolder);
                         });
@@ -745,7 +746,7 @@ export class Settings {
                 const next = { ...imageOverrides };
                 delete next[cardKey];
                 await this.saveCharacterExtensions(characterName, { ...extension, imageOverrides: next, spriteOverrides: undefined });
-                this.save(true);
+                this.save();
                 await this.renderSpriteRows(content, characterName, selectedFolder);
             });
 

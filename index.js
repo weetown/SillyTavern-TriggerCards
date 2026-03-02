@@ -138,7 +138,6 @@ const applyCollapsedState = (isCollapsed) => {
 
 const settingsCloseHandlers = {
     onKeyDown: null,
-    onMouseDown: null,
 };
 
 const wireSettingsCloseInteractions = () => {
@@ -148,10 +147,6 @@ const wireSettingsCloseInteractions = () => {
         if (settingsCloseHandlers.onKeyDown) {
             document.removeEventListener('keydown', settingsCloseHandlers.onKeyDown, true);
             settingsCloseHandlers.onKeyDown = null;
-        }
-        if (settingsCloseHandlers.onMouseDown) {
-            document.removeEventListener('mousedown', settingsCloseHandlers.onMouseDown, true);
-            settingsCloseHandlers.onMouseDown = null;
         }
     };
 
@@ -165,16 +160,17 @@ const wireSettingsCloseInteractions = () => {
         }
     };
 
-    settingsCloseHandlers.onMouseDown = (evt) => {
-        if (!settings?.isActive) return;
-        if (!settings.dom?.contains(evt.target)) {
-            settings.hide();
-            teardown();
-        }
-    };
-
     document.addEventListener('keydown', settingsCloseHandlers.onKeyDown, true);
-    document.addEventListener('mousedown', settingsCloseHandlers.onMouseDown, true);
+};
+
+const applyRootStyleSettings = () => {
+    if (!root) return;
+    const alignMap = { left:'flex-start', center:'center', right:'flex-end' };
+    root.style.setProperty('--sttc-align', alignMap[settings.align] ?? 'center');
+    root.style.setProperty('--sttc-shape-radius', settings.imageShape === 'circle' ? '999px' : '8px');
+    root.style.setProperty('--sttc-bg', settings.backgroundMode === 'transparent' ? 'transparent' : (settings.backgroundColor ?? '#00000059'));
+    root.style.setProperty('--sttc-image-height', `${Math.min(25, Math.max(1, Number(settings.imageHeightVh) || 10))}vh`);
+    root.style.setProperty('--sttc-image-rendering', settings.antiAlias ? 'auto' : 'pixelated');
 };
 
 
@@ -304,14 +300,15 @@ const findImage = async (name, cardKey = null) => {
     }
 
     // labels from server are lowercased; normalize ours too
-    const target = String(settings.expression ?? '').toLowerCase();
-
-    for (const folder of folders) {
-        const sprites = await getSpritesForCharacter(folder);
-        const matches = sprites.filter(s => String(s.label).toLowerCase() === target);
-        if (matches.length > 0) {
-            const chosen = pickSpriteVariant(matches, 'first');
-            return chosen?.path;
+    const target = String(settings.expression ?? '').toLowerCase().trim();
+    if (target) {
+        for (const folder of folders) {
+            const sprites = await getSpritesForCharacter(folder);
+            const matches = sprites.filter(s => String(s.label).toLowerCase() === target);
+            if (matches.length > 0) {
+                const chosen = pickSpriteVariant(matches, 'first');
+                return chosen?.path;
+            }
         }
     }
 
@@ -336,10 +333,6 @@ const loadSettings = ()=>{
         if (settingsCloseHandlers.onKeyDown) {
             document.removeEventListener('keydown', settingsCloseHandlers.onKeyDown, true);
             settingsCloseHandlers.onKeyDown = null;
-        }
-        if (settingsCloseHandlers.onMouseDown) {
-            document.removeEventListener('mousedown', settingsCloseHandlers.onMouseDown, true);
-            settingsCloseHandlers.onMouseDown = null;
         }
     };
     chat_metadata.triggerCards = settings;
@@ -760,6 +753,7 @@ const updateMembers = async() => {
     let extensions;
 
     while (settings?.isEnabled && isRunning) {
+        applyRootStyleSettings();
         if (lastCollapsedState !== settings.isCollapsed) {
             applyCollapsedState(settings.isCollapsed);
             lastCollapsedState = settings.isCollapsed;
@@ -860,11 +854,7 @@ const start = () => {
 
     root = document.createElement('div'); {
         root.classList.add('sttc--root');
-        root.style.setProperty('--sttc-align', settings.align ?? 'center');
-        root.style.setProperty('--sttc-shape-radius', settings.imageShape === 'circle' ? '999px' : '8px');
-        root.style.setProperty('--sttc-bg', settings.backgroundMode === 'transparent' ? 'transparent' : (settings.backgroundColor ?? '#00000059'));
-        root.style.setProperty('--sttc-image-height', `${Math.min(25, Math.max(1, Number(settings.imageHeightVh) || 10))}vh`);
-        root.style.setProperty('--sttc-image-rendering', settings.antiAlias ? 'auto' : 'pixelated');
+        applyRootStyleSettings();
 
         const toggle = document.createElement('button'); {
             toggle.type = 'button';
