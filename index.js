@@ -174,6 +174,7 @@ const applyRootStyleSettings = () => {
     root.style.setProperty('--sttc-bg', settings.backgroundMode === 'transparent' ? 'transparent' : (settings.backgroundColor ?? '#00000059'));
     root.style.setProperty('--sttc-image-height', `${Math.min(25, Math.max(1, Number(settings.imageHeightVh) || 10))}vh`);
     root.style.setProperty('--sttc-image-rendering', settings.antiAlias ? 'auto' : 'pixelated');
+    root.style.setProperty('--sttc-card-aspect', settings.cardAspectRatio || 'auto');
 };
 
 

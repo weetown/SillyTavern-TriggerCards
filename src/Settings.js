@@ -32,6 +32,7 @@ export class Settings {
     /**@type {string} */ backgroundColor = '#00000059';
     /**@type {number} */ imageHeightVh = 10;
     /**@type {boolean} */ antiAlias = true;
+    /**@type {'auto'|'1 / 1'|'2 / 3'|'3 / 4'|'16 / 9'} */ cardAspectRatio = 'auto';
 
     /**@type {BaseSetting[]}*/ settingList = [];
     /** @type {string | null} */ spriteManagerCharacter = null;
@@ -73,6 +74,7 @@ export class Settings {
             backgroundColor: this.backgroundColor,
             imageHeightVh: this.imageHeightVh,
             antiAlias: this.antiAlias,
+            cardAspectRatio: this.cardAspectRatio,
         };
     }
 
@@ -123,6 +125,7 @@ export class Settings {
                                 backgroundColor: '#00000059',
                                 imageHeightVh: 10,
                                 antiAlias: true,
+                                cardAspectRatio: 'auto',
                             });
                             this.registerSettings();
                             await this.init();
@@ -313,6 +316,23 @@ export class Settings {
                 initialValue: this.antiAlias,
                 onChange: (it)=>{
                     this.antiAlias = it.value;
+                    this.save();
+                },
+            }));
+            this.settingList.push(SelectSetting.fromProps({ id: 'sttc--aspect',
+                name: 'Card Aspect Ratio',
+                description: 'Controls card frame ratio while keeping image height setting.',
+                category: ['Layout'],
+                initialValue: this.cardAspectRatio,
+                optionList: [
+                    { value:'auto', label:'Auto' },
+                    { value:'1 / 1', label:'1:1 (Square)' },
+                    { value:'2 / 3', label:'2:3 (Portrait)' },
+                    { value:'3 / 4', label:'3:4 (Portrait)' },
+                    { value:'16 / 9', label:'16:9 (Wide)' },
+                ],
+                onChange: (it)=>{
+                    this.cardAspectRatio = it.value;
                     this.save();
                 },
             }));
