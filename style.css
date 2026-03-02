@@ -5,9 +5,16 @@
   --sttc-align: center;
   --sttc-shape-radius: 8px;
   --sttc-bg: rgba(0, 0, 0, 0.35);
-  --sttc-image-height: 10vh;
+  --sttc-image-height: 94px;
   --sttc-image-rendering: auto;
   --sttc-card-aspect: auto;
+  --sttc-card-gap: 6px;
+  --sttc-card-outline: none;
+  --sttc-card-shadow: drop-shadow(0 0 6px rgba(0 0 0 / 0.5));
+  --sttc-hover-shift: -10%;
+  --sttc-nametag-opacity: 0.9;
+  --sttc-nametag-color: #fff;
+  --sttc-nametag-size: 11px;
   position: relative;
   width: 100%;
   height: calc(var(--sttc-handle-height) + var(--sttc-tray-height));
@@ -77,7 +84,7 @@
   display: flex;
   flex-direction: row;
   justify-content: var(--sttc-align);
-  gap: 6px;
+  gap: var(--sttc-card-gap);
   align-items: flex-start;
 }
 .sttc--root.sttc--collapsed > .sttc--tray {
@@ -91,31 +98,50 @@
 .sttc--tray-row > .sttc--wrapper.sttc--absent > .sttc--img {
   filter: grayscale(1);
 }
-.sttc--tray-row > .sttc--wrapper.sttc--chatty {
-  opacity: 1;
-}
 .sttc--tray-row > .sttc--wrapper:hover,
 .sttc--tray-row > .sttc--wrapper.sttc--hover {
-  transform: translateY(-10%);
+  transform: translateY(var(--sttc-hover-shift));
   opacity: 1;
 }
 .sttc--wrapper {
-  height: min(94px, var(--sttc-image-height));
+  min-height: var(--sttc-image-height);
+  height: var(--sttc-image-height);
   aspect-ratio: var(--sttc-card-aspect);
-  filter: drop-shadow(0 0 6px rgba(0 0 0 / 0.5));
+  filter: var(--sttc-card-shadow);
   cursor: pointer;
   opacity: 0.75;
   transition: transform 250ms ease, opacity 250ms ease;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
 }
 .sttc--wrapper > .sttc--img {
   width: 100%;
-  height: 100%;
+  height: calc(100% - 1.4em);
   object-fit: contain;
   object-position: top;
   border-radius: var(--sttc-shape-radius);
+  border: var(--sttc-card-outline);
   image-rendering: var(--sttc-image-rendering);
   pointer-events: all;
   transition: 400ms;
+}
+.sttc--tray-row > .sttc--wrapper.sttc--muted {
+  opacity: 0.4;
+}
+.sttc--tray-row > .sttc--wrapper.sttc--muted > .sttc--img {
+  filter: grayscale(1);
+}
+.sttc--nametag {
+  line-height: 1.2;
+  text-align: center;
+  color: var(--sttc-nametag-color);
+  opacity: var(--sttc-nametag-opacity);
+  font-size: var(--sttc-nametag-size);
+  text-shadow: 0 1px 2px rgba(0,0,0,0.8);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .sttc--blocker {
   position: fixed;

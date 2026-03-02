@@ -31,6 +31,7 @@ let imgs = [];
 let nameList = [];
 let lastCollapsedState;
 let restartPromise = Promise.resolve();
+let lastTriggerClick = { name: '', time: 0 };
 
 /** Bottom-bar Extensions (wand) menu + main Extensions panel integration **/
 const STTC_IDS = {
@@ -172,9 +173,16 @@ const applyRootStyleSettings = () => {
     root.style.setProperty('--sttc-align', alignMap[settings.align] ?? 'center');
     root.style.setProperty('--sttc-shape-radius', settings.imageShape === 'circle' ? '999px' : '8px');
     root.style.setProperty('--sttc-bg', settings.backgroundMode === 'transparent' ? 'transparent' : (settings.backgroundColor ?? '#00000059'));
-    root.style.setProperty('--sttc-image-height', `${Math.min(25, Math.max(1, Number(settings.imageHeightVh) || 10))}vh`);
+    root.style.setProperty('--sttc-image-height', `${Math.min(256, Math.max(48, Number(settings.imageHeightPx) || 94))}px`);
     root.style.setProperty('--sttc-image-rendering', settings.antiAlias ? 'auto' : 'pixelated');
     root.style.setProperty('--sttc-card-aspect', settings.cardAspectRatio || 'auto');
+    root.style.setProperty('--sttc-card-gap', `${Math.max(0, Number(settings.cardGapPx) || 6)}px`);
+    root.style.setProperty('--sttc-card-outline', settings.showOutline ? `1px solid ${settings.outlineColor ?? '#ffffff66'}` : 'none');
+    root.style.setProperty('--sttc-card-shadow', settings.showDropShadow ? `drop-shadow(0 0 6px ${settings.shadowColor ?? '#00000080'})` : 'none');
+    root.style.setProperty('--sttc-hover-shift', settings.hoverAnimation ? '-10%' : '0%');
+    root.style.setProperty('--sttc-nametag-opacity', String(Math.max(0, Math.min(1, Number(settings.nametagOpacity) || 0.9))));
+    root.style.setProperty('--sttc-nametag-color', settings.nametagColor ?? '#ffffff');
+    root.style.setProperty('--sttc-nametag-size', `${Math.max(8, Math.min(24, Number(settings.nametagSizePx) || 11))}px`);
 };
 
 
@@ -422,9 +430,9 @@ const activate = async(args, members) => {
     // Fix: use settings.extensions, not settings.extList
     settings.extensions = extList && extList.length > 0
         ? extList
-        : (args.reset ? ['png', 'webp', 'gif'] : settings.extensions) ?? ['png', 'webp', 'gif'];
+        : (args.reset ? ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp', 'avif'] : settings.extensions) ?? ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp', 'avif'];
 
-    if (settings.extensions && settings.extensions.filter(it=>it).length <= 0) settings.extensions = ['png', 'webp', 'gif'];
+    if (settings.extensions && settings.extensions.filter(it=>it).length <= 0) settings.extensions = ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp', 'avif'];
 
     settings.grayscale = gray ?? (args.reset ? true : settings.grayscale) ?? true;
     settings.mute = mute ?? (args.reset ? true : settings.mute) ?? true;
@@ -486,6 +494,14 @@ const handleClick = async (/**@type {MouseEvent}*/evt, /**@type {string}*/fullNa
     evt.preventDefault();
     evt.stopPropagation();
     const [name, ...args] = fullName.split('::');
+
+    const now = Date.now();
+    if (settings.clickBehavior === 'trigger_cancel' && lastTriggerClick.name === fullName && (now - lastTriggerClick.time) < 1500) {
+        executeSlashCommands('/cancel');
+        lastTriggerClick = { name: '', time: 0 };
+        return;
+    }
+    lastTriggerClick = { name: fullName, time: now };
 
     if (settings.memberQrSet && args.includes('qr')) {
         try {
@@ -549,6 +565,13 @@ const handleClick = async (/**@type {MouseEvent}*/evt, /**@type {string}*/fullNa
 const handleContext = async(evt, fullName, wrap) => {
     evt.preventDefault();
     evt.stopPropagation();
+    if (settings.rightClickMute) {
+        const [name] = fullName.split('::');
+        const muted = getMuted();
+        const cmd = muted.includes(name) ? `/enable ${name}` : `/disable ${name}`;
+        executeSlashCommands(cmd);
+        return;
+    }
     wrap.classList.add('sttc--hover');
 
     const [name, ...args] = fullName.split('::');
@@ -732,7 +755,14 @@ const getNames = (present = false)=>{
         const context = getContext();
         const group = context.groups.find(it=>it.id == groupId);
         const members = group.members.map(m=>context.characters.find(c=>c.avatar == m));
-        const names = members.map(it=>it.name);
+        let names = members.map(it=>it.name);
+        if (Array.isArray(settings.manualOrder) && settings.manualOrder.length) {
+            names = [...names].sort((a,b)=>{
+                const ai = settings.manualOrder.indexOf(a);
+                const bi = settings.manualOrder.indexOf(b);
+                return (ai < 0 ? 999 : ai) - (bi < 0 ? 999 : bi);
+            });
+        }
         return names;
     } else {
         return [characters[getContext().characterId]].map(it=>it.name);
@@ -783,9 +813,31 @@ const updateMembers = async() => {
 
             const wrap = document.createElement('div'); {
                 wrap.classList.add('sttc--wrapper');
+                wrap.draggable = Boolean(settings.enableDragReorder);
+                wrap.addEventListener('dragstart', ()=>wrap.classList.add('sttc--dragging'));
+                wrap.addEventListener('dragend', ()=>wrap.classList.remove('sttc--dragging'));
+                wrap.addEventListener('dragover', (evt)=>{
+                    if (!settings.enableDragReorder) return;
+                    evt.preventDefault();
+                });
+                wrap.addEventListener('drop', (evt)=>{
+                    if (!settings.enableDragReorder) return;
+                    evt.preventDefault();
+                    const dragging = trayRow?.querySelector('.sttc--wrapper.sttc--dragging');
+                    if (!dragging || dragging === wrap) return;
+                    wrap.insertAdjacentElement('beforebegin', dragging);
+                    settings.manualOrder = [...trayRow.querySelectorAll('.sttc--wrapper .sttc--img')].map(it=>it.getAttribute('data-character')?.split('::')[0]).filter(Boolean);
+                    saveMetadataDebounced();
+                });
                 wrap.addEventListener('click', (evt)=>handleClick(evt, name));
                 wrap.addEventListener('contextmenu', (evt)=>handleContext(evt, name, wrap));
                 wrap.addEventListener('pointerenter', ()=>handleTitle(wrap, name));
+
+                const nametag = document.createElement('div'); {
+                    nametag.classList.add('sttc--nametag');
+                    nametag.textContent = namePart;
+                    if (settings.showNametags && settings.nametagPosition === 'above') wrap.append(nametag);
+                }
 
                 const img = document.createElement('img'); {
                     img.classList.add('sttc--img');
@@ -795,6 +847,12 @@ const updateMembers = async() => {
                     img.src = await findImage(namePart, name) ?? '';
 
                     wrap.append(img);
+                }
+                if (settings.showNametags && settings.nametagPosition !== 'above') {
+                    const nametagBottom = document.createElement('div');
+                    nametagBottom.classList.add('sttc--nametag');
+                    nametagBottom.textContent = namePart;
+                    wrap.append(nametagBottom);
                 }
 
                 const before = imgs.find(it=>name.localeCompare(it.getAttribute('data-character')) == -1);
@@ -817,10 +875,10 @@ const updateMembers = async() => {
                 img.closest('.sttc--wrapper').classList.remove('sttc--absent');
             }
 
-            if (settings.mute && muted.indexOf(img.getAttribute('data-character')) == -1) {
-                img.closest('.sttc--wrapper').classList.add('sttc--chatty');
+            if (settings.mute && muted.indexOf(img.getAttribute('data-character').split('::')[0]) > -1) {
+                img.closest('.sttc--wrapper').classList.add('sttc--muted');
             } else {
-                img.closest('.sttc--wrapper').classList.remove('sttc--chatty');
+                img.closest('.sttc--wrapper').classList.remove('sttc--muted');
             }
 
             // We do NOT clear sprite cache on expression change. We just pick a different label from cached list.

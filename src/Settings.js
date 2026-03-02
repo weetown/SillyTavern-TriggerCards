@@ -20,7 +20,7 @@ export class Settings {
     /**@type {string} */ memberQrSet = null;
     /**@type {string[]} */ memberList = null;
     /**@type {string} */ expression = '';
-    /**@type {string[]} */ extensions = ['png', 'webp', 'gif'];
+    /**@type {string[]} */ extensions = ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp', 'avif'];
     /**@type {boolean} */ grayscale = true;
     /**@type {boolean} */ mute = true;
     /**@type {boolean} */ isCollapsed = false;
@@ -30,12 +30,34 @@ export class Settings {
     /**@type {'square'|'circle'} */ imageShape = 'square';
     /**@type {'solid'|'transparent'} */ backgroundMode = 'solid';
     /**@type {string} */ backgroundColor = '#00000059';
-    /**@type {number} */ imageHeightVh = 10;
+    /**@type {number} */ imageHeightPx = 94;
     /**@type {boolean} */ antiAlias = true;
     /**@type {'auto'|'1 / 1'|'2 / 3'|'3 / 4'|'16 / 9'} */ cardAspectRatio = 'auto';
+    /**@type {number} */ cardGapPx = 6;
+    /**@type {boolean} */ showOutline = false;
+    /**@type {string} */ outlineColor = '#ffffff66';
+    /**@type {boolean} */ showDropShadow = true;
+    /**@type {string} */ shadowColor = '#00000080';
+    /**@type {boolean} */ hoverAnimation = true;
+    /**@type {boolean} */ showActionsSection = false;
+    /**@type {boolean} */ showMembersSection = false;
+    /**@type {'trigger'|'trigger_cancel'} */ clickBehavior = 'trigger_cancel';
+    /**@type {boolean} */ rightClickMute = true;
+    /**@type {boolean} */ showReplyModeShortcut = false;
+    /**@type {boolean} */ showGenerationModeShortcut = false;
+    /**@type {boolean} */ enableDragReorder = false;
+    /**@type {boolean} */ showNametags = false;
+    /**@type {'above'|'below'} */ nametagPosition = 'below';
+    /**@type {string} */ nametagColor = '#ffffff';
+    /**@type {number} */ nametagOpacity = 0.9;
+    /**@type {number} */ nametagSizePx = 11;
+    /**@type {boolean} */ nametagShadow = true;
+    /**@type {'sprite'|'gallery'|'expressions'|'avatar'} */ defaultImageSource = 'avatar';
+    /**@type {string|null} */ spriteManagerCardKey = null;
 
     /**@type {BaseSetting[]}*/ settingList = [];
     /** @type {string | null} */ spriteManagerCharacter = null;
+    /** @type {string[]} */ manualOrder = [];
     get isActive() {
         return this.dom.classList.contains('sttc--active');
     }
@@ -51,6 +73,9 @@ export class Settings {
 
     constructor() {
         Object.assign(this, chat_metadata.triggerCards ?? {});
+        if (typeof this.imageHeightPx !== 'number') {
+            this.imageHeightPx = Math.max(48, Math.round((Number(this.imageHeightVh) || 10) * 9.4));
+        }
         this.registerSettings();
         this.init();
     }
@@ -72,9 +97,30 @@ export class Settings {
             imageShape: this.imageShape,
             backgroundMode: this.backgroundMode,
             backgroundColor: this.backgroundColor,
-            imageHeightVh: this.imageHeightVh,
+            imageHeightPx: this.imageHeightPx,
             antiAlias: this.antiAlias,
             cardAspectRatio: this.cardAspectRatio,
+            cardGapPx: this.cardGapPx,
+            showOutline: this.showOutline,
+            outlineColor: this.outlineColor,
+            showDropShadow: this.showDropShadow,
+            shadowColor: this.shadowColor,
+            hoverAnimation: this.hoverAnimation,
+            showActionsSection: this.showActionsSection,
+            showMembersSection: this.showMembersSection,
+            clickBehavior: this.clickBehavior,
+            rightClickMute: this.rightClickMute,
+            showReplyModeShortcut: this.showReplyModeShortcut,
+            showGenerationModeShortcut: this.showGenerationModeShortcut,
+            enableDragReorder: this.enableDragReorder,
+            showNametags: this.showNametags,
+            nametagPosition: this.nametagPosition,
+            nametagColor: this.nametagColor,
+            nametagOpacity: this.nametagOpacity,
+            nametagSizePx: this.nametagSizePx,
+            nametagShadow: this.nametagShadow,
+            defaultImageSource: this.defaultImageSource,
+            manualOrder: this.manualOrder,
         };
     }
 
@@ -113,7 +159,7 @@ export class Settings {
                                 memberQrSet: null,
                                 memberList: null,
                                 expression: '',
-                                extensions: ['png', 'webp', 'gif'],
+                                extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp', 'avif'],
                                 grayscale: true,
                                 mute: true,
                                 isCollapsed: false,
@@ -123,9 +169,30 @@ export class Settings {
                                 imageShape: 'square',
                                 backgroundMode: 'solid',
                                 backgroundColor: '#00000059',
-                                imageHeightVh: 10,
+                                imageHeightPx: 94,
                                 antiAlias: true,
                                 cardAspectRatio: 'auto',
+                                cardGapPx: 6,
+                                showOutline: false,
+                                outlineColor: '#ffffff66',
+                                showDropShadow: true,
+                                shadowColor: '#00000080',
+                                hoverAnimation: true,
+                                showActionsSection: false,
+                                showMembersSection: false,
+                                clickBehavior: 'trigger_cancel',
+                                rightClickMute: true,
+                                showReplyModeShortcut: false,
+                                showGenerationModeShortcut: false,
+                                enableDragReorder: false,
+                                showNametags: false,
+                                nametagPosition: 'below',
+                                nametagColor: '#ffffff',
+                                nametagOpacity: 0.9,
+                                nametagSizePx: 11,
+                                nametagShadow: true,
+                                defaultImageSource: 'avatar',
+                                manualOrder: [],
                             });
                             this.registerSettings();
                             await this.init();
@@ -135,8 +202,44 @@ export class Settings {
                     }),
                 ],
             }));
+            this.settingList.push(CheckboxSetting.fromProps({ id: 'sttc--showActionsSection',
+                name: 'Show Actions Settings (Advanced)',
+                description: 'Enable advanced Actions settings section.',
+                category: ['General'],
+                initialValue: this.showActionsSection,
+                onChange: (it)=>{
+                    this.showActionsSection = it.value;
+                    this.registerSettings();
+                    this.init();
+                    this.save();
+                },
+            }));
+            this.settingList.push(CheckboxSetting.fromProps({ id: 'sttc--showMembersSection',
+                name: 'Show Members Settings (Advanced)',
+                description: 'Enable advanced Members settings section.',
+                category: ['General'],
+                initialValue: this.showMembersSection,
+                onChange: (it)=>{
+                    this.showMembersSection = it.value;
+                    this.registerSettings();
+                    this.init();
+                    this.save();
+                },
+            }));
+            this.settingList.push(ActionSetting.fromProps({ id: 'sttc--manageSpritesQuick',
+                name: 'Manage Sprites',
+                description: 'Jump directly to the Images > Sprite Manager section.',
+                category: ['General'],
+                initialValue: null,
+                actionList: [
+                    SettingAction.fromProps({ label: 'Open Sprite Manager', icon: 'fa-images', tooltip: 'Jump to sprite manager', action: ()=>{
+                        const head = this.dom?.querySelector('.contentWrapper > .category > .head[data-key="images"]');
+                        head?.scrollIntoView({ behavior:'smooth', block:'start' });
+                    }}),
+                ],
+            }));
         }
-        { // actions
+        if (this.showActionsSection) { // actions
             this.settingList.push(SelectSetting.fromProps({ id: 'sttc--actionQrSet',
                 name: 'Click Actions',
                 description: 'Name of a QR Set for click actions, see /tc?',
@@ -148,8 +251,26 @@ export class Settings {
                     this.save();
                 },
             }));
+            this.settingList.push(SelectSetting.fromProps({ id: 'sttc--clickBehavior',
+                name: 'Click Behavior',
+                description: 'Click to trigger; optional second click can cancel while streaming.',
+                category: ['Actions'],
+                initialValue: this.clickBehavior,
+                optionList: [
+                    { value:'trigger', label:'Trigger only' },
+                    { value:'trigger_cancel', label:'Trigger then cancel on second click' },
+                ],
+                onChange: (it)=>{ this.clickBehavior = it.value; this.save(); },
+            }));
+            this.settingList.push(CheckboxSetting.fromProps({ id: 'sttc--rightClickMute',
+                name: 'Right-click toggles mute',
+                description: 'Use right click on a card to mute/unmute that character.',
+                category: ['Actions'],
+                initialValue: this.rightClickMute,
+                onChange: (it)=>{ this.rightClickMute = it.value; this.save(); },
+            }));
         }
-        { // members
+        if (this.showMembersSection) { // members
             this.settingList.push(SelectSetting.fromProps({ id: 'sttc--memberQrSet',
                 name: 'Member QR Set',
                 description: 'Name of a QR Set used as member list, see /tc?',
@@ -170,6 +291,13 @@ export class Settings {
                     this.memberList = it.value.split(/\s*,\s*/)?.filter(it=>it);
                     this.save();
                 },
+            }));
+            this.settingList.push(CheckboxSetting.fromProps({ id: 'sttc--dragReorder',
+                name: 'Enable Drag Reorder',
+                description: 'Drag cards to reorder group member response order.',
+                category: ['Members'],
+                initialValue: this.enableDragReorder,
+                onChange: (it)=>{ this.enableDragReorder = it.value; this.save(); },
             }));
         }
         { // images
@@ -216,7 +344,7 @@ export class Settings {
             }));
             this.settingList.push(TextSetting.fromProps({ id: 'sttc--extensions',
                 name: 'Extensions',
-                description: 'Comma separated list of file extensions to use for expression images.',
+                description: 'Comma separated list of image file extensions (png, jpg, jpeg, webp, gif, bmp, avif).',
                 category: ['Images'],
                 initialValue: (this.extensions ?? []).join(', '),
                 onChange: (it)=>{
@@ -235,8 +363,8 @@ export class Settings {
                 },
             }));
             this.settingList.push(CheckboxSetting.fromProps({ id: 'sttc--mute',
-                name: 'Highlight Unmuted',
-                description: 'Show unmuted members opaque.',
+                name: 'Muted Contrast Mode',
+                description: 'Muted members become grayscale + lower opacity for clearer distinction.',
                 category: ['Images'],
                 initialValue: this.mute,
                 onChange: (it)=>{
@@ -319,6 +447,90 @@ export class Settings {
                     this.save();
                 },
             }));
+            this.settingList.push(CustomSetting.fromProps({
+                id: 'sttc--cardGap',
+                name: 'Card Gap (px)',
+                description: 'Distance between cards in tray.',
+                category: ['Layout'],
+                renderCallback: () => this.renderRangeControl(0, 48, 1, this.cardGapPx, (v)=>{ this.cardGapPx = v; this.save(); }),
+                getValueCallback: () => this.cardGapPx,
+                setValueCallback: (value) => { this.cardGapPx = value; },
+            }));
+            this.settingList.push(CheckboxSetting.fromProps({ id: 'sttc--outline',
+                name: 'Card Outline',
+                description: 'Show a border around card images.',
+                category: ['Layout'],
+                initialValue: this.showOutline,
+                onChange: (it)=>{ this.showOutline = it.value; this.save(); },
+            }));
+            this.settingList.push(ColorSetting.fromProps({ id: 'sttc--outlineColor',
+                name: 'Outline Color',
+                description: 'Border color including transparency.',
+                category: ['Layout'],
+                initialValue: this.outlineColor,
+                onChange: (it)=>{ this.outlineColor = it.value; this.save(); },
+            }));
+            this.settingList.push(CheckboxSetting.fromProps({ id: 'sttc--dropShadow',
+                name: 'Drop Shadow',
+                description: 'Show drop shadow under cards.',
+                category: ['Layout'],
+                initialValue: this.showDropShadow,
+                onChange: (it)=>{ this.showDropShadow = it.value; this.save(); },
+            }));
+            this.settingList.push(ColorSetting.fromProps({ id: 'sttc--shadowColor',
+                name: 'Shadow Color',
+                description: 'Shadow color including transparency.',
+                category: ['Layout'],
+                initialValue: this.shadowColor,
+                onChange: (it)=>{ this.shadowColor = it.value; this.save(); },
+            }));
+            this.settingList.push(CheckboxSetting.fromProps({ id: 'sttc--hoverAnimation',
+                name: 'Hover Animation',
+                description: 'Enable card lift animation on hover.',
+                category: ['Layout'],
+                initialValue: this.hoverAnimation,
+                onChange: (it)=>{ this.hoverAnimation = it.value; this.save(); },
+            }));
+            this.settingList.push(CheckboxSetting.fromProps({ id: 'sttc--showNametags',
+                name: 'Show Nametags',
+                description: 'Display character name labels on cards.',
+                category: ['Layout'],
+                initialValue: this.showNametags,
+                onChange: (it)=>{ this.showNametags = it.value; this.save(); },
+            }));
+            this.settingList.push(SelectSetting.fromProps({ id: 'sttc--nametagPosition',
+                name: 'Nametag Position',
+                description: 'Place nametag above or below card.',
+                category: ['Layout'],
+                initialValue: this.nametagPosition,
+                optionList: [{value:'above',label:'Above'},{value:'below',label:'Below'}],
+                onChange: (it)=>{ this.nametagPosition = it.value; this.save(); },
+            }));
+            this.settingList.push(ColorSetting.fromProps({ id: 'sttc--nametagColor',
+                name: 'Nametag Color',
+                description: 'Nametag text color.',
+                category: ['Layout'],
+                initialValue: this.nametagColor,
+                onChange: (it)=>{ this.nametagColor = it.value; this.save(); },
+            }));
+            this.settingList.push(CustomSetting.fromProps({
+                id: 'sttc--nametagSize',
+                name: 'Nametag Size (px)',
+                description: 'Text size for nametags.',
+                category: ['Layout'],
+                renderCallback: () => this.renderRangeControl(8, 24, 1, this.nametagSizePx, (v)=>{ this.nametagSizePx = v; this.save(); }),
+                getValueCallback: () => this.nametagSizePx,
+                setValueCallback: (value) => { this.nametagSizePx = value; },
+            }));
+            this.settingList.push(CustomSetting.fromProps({
+                id: 'sttc--nametagOpacity',
+                name: 'Nametag Opacity',
+                description: 'Opacity for nametag text.',
+                category: ['Layout'],
+                renderCallback: () => this.renderRangeControl(0, 1, 0.05, this.nametagOpacity, (v)=>{ this.nametagOpacity = v; this.save(); }),
+                getValueCallback: () => this.nametagOpacity,
+                setValueCallback: (value) => { this.nametagOpacity = value; },
+            }));
             this.settingList.push(SelectSetting.fromProps({ id: 'sttc--aspect',
                 name: 'Card Aspect Ratio',
                 description: 'Controls card frame ratio while keeping image height setting.',
@@ -338,12 +550,12 @@ export class Settings {
             }));
             this.settingList.push(CustomSetting.fromProps({
                 id: 'sttc--scale',
-                name: 'Image Height (vh)',
-                description: 'Set image height with slider + input (max 25vh).',
+                name: 'Image Height (px)',
+                description: 'Set image height with slider + input (px).',
                 category: ['Layout'],
                 renderCallback: () => this.renderImageScaleControl(),
-                getValueCallback: () => this.imageHeightVh,
-                setValueCallback: (value) => { this.imageHeightVh = value; },
+                getValueCallback: () => this.imageHeightPx,
+                setValueCallback: (value) => { this.imageHeightPx = value; },
             }));
         }
         { // sprite manager
@@ -567,22 +779,22 @@ export class Settings {
         wrap.classList.add('sttc--scale-control');
         const slider = document.createElement('input');
         slider.type = 'range';
-        slider.min = '1';
-        slider.max = '25';
-        slider.step = '0.5';
-        slider.value = String(this.imageHeightVh ?? 10);
+        slider.min = '48';
+        slider.max = '256';
+        slider.step = '2';
+        slider.value = String(this.imageHeightPx ?? 94);
         const number = document.createElement('input');
         number.type = 'number';
         number.classList.add('text_pole');
-        number.min = '1';
-        number.max = '25';
-        number.step = '0.5';
+        number.min = '48';
+        number.max = '256';
+        number.step = '2';
         number.value = slider.value;
         const apply = (raw) => {
-            const n = Math.min(25, Math.max(1, Number(raw) || 10));
+            const n = Math.min(256, Math.max(48, Number(raw) || 94));
             slider.value = String(n);
             number.value = String(n);
-            this.imageHeightVh = n;
+            this.imageHeightPx = n;
             this.save();
         };
         slider.addEventListener('input', () => apply(slider.value));
@@ -591,7 +803,64 @@ export class Settings {
         return wrap;
     }
 
-    async renderSpriteRows(content, characterName, selectedFolder = null) {
+    renderRangeControl(min, max, step, value, onApply) {
+        const wrap = document.createElement('div');
+        wrap.classList.add('sttc--scale-control');
+        const slider = document.createElement('input');
+        slider.type = 'range';
+        slider.min = String(min);
+        slider.max = String(max);
+        slider.step = String(step);
+        slider.value = String(value);
+        const number = document.createElement('input');
+        number.type = 'number';
+        number.classList.add('text_pole');
+        number.min = String(min);
+        number.max = String(max);
+        number.step = String(step);
+        number.value = slider.value;
+        const apply = (raw) => {
+            const n = Math.min(max, Math.max(min, Number(raw) || value));
+            slider.value = String(n);
+            number.value = String(n);
+            onApply(n);
+        };
+        slider.addEventListener('input', () => apply(slider.value));
+        number.addEventListener('change', () => apply(number.value));
+        wrap.append(slider, number);
+        return wrap;
+    }
+
+    renderAdvancedStyleControls() {
+        const wrap = document.createElement('div');
+        wrap.classList.add('sttc--advanced-style-controls');
+        const mkNum = (labelText, min, max, step, value, cb) => {
+            const row = document.createElement('div');
+            row.classList.add('sttc--scale-control');
+            const label = document.createElement('div');
+            label.classList.add('sttc--sprite-field-label');
+            label.textContent = labelText;
+            const input = document.createElement('input');
+            input.type = 'number';
+            input.classList.add('text_pole');
+            input.min = String(min);
+            input.max = String(max);
+            input.step = String(step);
+            input.value = String(value);
+            input.addEventListener('change', () => cb(Number(input.value)));
+            row.append(label, input);
+            return row;
+        };
+
+        wrap.append(
+            mkNum('Card Gap (px)', 0, 48, 1, this.cardGapPx, (v)=>{ this.cardGapPx = Math.max(0, Math.min(48, v || 6)); this.save(); }),
+            mkNum('Nametag Size (px)', 8, 24, 1, this.nametagSizePx, (v)=>{ this.nametagSizePx = Math.max(8, Math.min(24, v || 11)); this.save(); }),
+            mkNum('Nametag Opacity (0-1)', 0, 1, 0.05, this.nametagOpacity, (v)=>{ this.nametagOpacity = Math.max(0, Math.min(1, v || 0.9)); this.save(); }),
+        );
+        return wrap;
+    }
+
+    async renderSpriteRows(content, characterName) {
         content.innerHTML = '';
         if (!characterName) {
             content.textContent = 'Select a character to manage Trigger Cards sprites.';
@@ -611,7 +880,7 @@ export class Settings {
             const spriteName = `tc_${this.safeKey(cardKey)}`;
             const override = imageOverrides[cardKey];
             const activeLabel = (override?.type === 'sprite' ? override.label : null) ?? String(this.expression ?? '').toLowerCase();
-            const targets = this.getFolderTargetsForCard(characterName, cardKey, selectedFolder);
+            const targets = this.getFolderTargetsForCard(characterName, cardKey, null);
             let preview = '';
             let effectiveFolder = targets[0] ?? characterName;
             if (override?.type === 'gallery' && override.path) {
@@ -701,7 +970,7 @@ export class Settings {
                     const next = { ...imageOverrides, [cardKey]: { type: 'sprite', label: spriteName } };
                     await this.saveCharacterExtensions(characterName, { ...extension, imageOverrides: next, spriteOverrides: undefined });
                     this.save();
-                    await this.renderSpriteRows(content, characterName, selectedFolder);
+                    await this.renderSpriteRows(content, characterName);
                 } catch (ex) {
                     toastr.error(`Upload failed: ${ex?.message ?? String(ex)}`);
                 }
@@ -730,7 +999,7 @@ export class Settings {
                             await this.saveCharacterExtensions(characterName, { ...extension, imageOverrides: next, spriteOverrides: undefined });
                             this.save();
                             picker.remove();
-                            await this.renderSpriteRows(content, characterName, selectedFolder);
+                            await this.renderSpriteRows(content, characterName);
                         });
                     });
                     picker.append(thumb);
@@ -767,7 +1036,7 @@ export class Settings {
                 delete next[cardKey];
                 await this.saveCharacterExtensions(characterName, { ...extension, imageOverrides: next, spriteOverrides: undefined });
                 this.save();
-                await this.renderSpriteRows(content, characterName, selectedFolder);
+                await this.renderSpriteRows(content, characterName);
             });
 
             controls.append(sourceSelect, fileInput, choose, fileLabel, upload, galleryBtn, cropBtn, remove);
@@ -781,6 +1050,35 @@ export class Settings {
         wrap.classList.add('sttc--sprite-manager');
         const context = getContext();
         const chars = context.characters.map(c => c.name).filter(Boolean);
+
+        const preview = document.createElement('div');
+        preview.classList.add('sttc--sprite-manager-preview');
+        const previewImg = document.createElement('img');
+        previewImg.classList.add('sttc--sprite-manager-preview-image');
+        const previewLabel = document.createElement('div');
+        previewLabel.classList.add('sttc--sprite-field-label');
+        previewLabel.textContent = 'Select a card row to preview';
+        preview.append(previewImg, previewLabel);
+
+        const sourceWrap = document.createElement('div');
+        sourceWrap.classList.add('sttc--sprite-folder-wrap');
+        const sourceLabel = document.createElement('div');
+        sourceLabel.classList.add('sttc--sprite-field-label');
+        sourceLabel.textContent = 'Default image source';
+        const sourceSelect = document.createElement('select');
+        sourceSelect.classList.add('text_pole');
+        sourceSelect.innerHTML = `
+            <option value="avatar">Avatar (fallback)</option>
+            <option value="sprite">Upload sprite</option>
+            <option value="gallery">Gallery</option>
+            <option value="expressions" disabled>Expressions (disabled)</option>
+        `;
+        sourceSelect.value = this.defaultImageSource ?? 'avatar';
+        sourceSelect.addEventListener('change', ()=>{
+            this.defaultImageSource = sourceSelect.value;
+            this.save();
+        });
+        sourceWrap.append(sourceLabel, sourceSelect);
 
         const select = document.createElement('select');
         select.classList.add('text_pole');
@@ -803,59 +1101,22 @@ export class Settings {
         const content = document.createElement('div');
         content.classList.add('sttc--sprite-manager-list');
 
-        const folderWrap = document.createElement('div');
-        folderWrap.classList.add('sttc--sprite-folder-wrap');
-        const folderLabel = document.createElement('div');
-        folderLabel.classList.add('sttc--sprite-field-label');
-        folderLabel.textContent = 'Image folder target';
-        const folderSelect = document.createElement('select');
-        folderSelect.classList.add('text_pole');
-        const folderHint = document.createElement('div');
-        folderHint.classList.add('sttc--sprite-folder-hint');
-
-        const refreshFolderOptions = () => {
-            folderSelect.innerHTML = '';
-            if (!this.spriteManagerCharacter) {
-                const none = document.createElement('option');
-                none.value = '';
-                none.textContent = '-- Select character first --';
-                folderSelect.append(none);
-                folderSelect.disabled = true;
-                folderHint.textContent = '';
-                return null;
-            }
-
-            folderSelect.disabled = false;
-            const root = document.createElement('option');
-            root.value = this.spriteManagerCharacter;
-            root.textContent = `Character root folder (${this.spriteManagerCharacter})`;
-            folderSelect.append(root);
-            for (const folder of this.getCostumeFoldersForCharacter(this.spriteManagerCharacter)) {
-                const option = document.createElement('option');
-                option.value = folder;
-                option.textContent = folder;
-                folderSelect.append(option);
-            }
-            folderHint.textContent = `Sprite target: ${folderSelect.value}`;
-            return folderSelect.value;
-        };
-
         select.addEventListener('change', async () => {
             this.spriteManagerCharacter = select.value || null;
-            const selectedFolder = refreshFolderOptions();
-            await this.renderSpriteRows(content, this.spriteManagerCharacter, selectedFolder);
+            this.spriteManagerCardKey = null;
+            await this.renderSpriteRows(content, this.spriteManagerCharacter);
         });
 
-        folderSelect.addEventListener('change', async () => {
-            folderHint.textContent = `Sprite target: ${folderSelect.value}`;
-            await this.renderSpriteRows(content, this.spriteManagerCharacter, folderSelect.value || null);
+        content.addEventListener('click', (evt)=>{
+            const row = evt.target.closest('.sttc--sprite-row');
+            if (!row) return;
+            const img = row.querySelector('.sttc--sprite-preview');
+            previewImg.src = img?.src ?? '';
+            previewLabel.textContent = row.querySelector('.sttc--sprite-name')?.textContent ?? 'Preview';
         });
 
-        const selectedFolder = refreshFolderOptions();
-        folderWrap.append(folderLabel, folderSelect, folderHint);
-
-        wrap.append(selectLabel, select, folderWrap, content);
-        this.renderSpriteRows(content, this.spriteManagerCharacter, selectedFolder);
+        wrap.append(preview, selectLabel, select, sourceWrap, content);
+        this.renderSpriteRows(content, this.spriteManagerCharacter);
         return wrap;
     }
 
