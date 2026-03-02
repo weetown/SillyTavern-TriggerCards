@@ -19,7 +19,7 @@ export class Settings {
     /**@type {string} */ actionQrSet = null;
     /**@type {string} */ memberQrSet = null;
     /**@type {string[]} */ memberList = null;
-    /**@type {string} */ expression = 'joy';
+    /**@type {string} */ expression = '';
     /**@type {string[]} */ extensions = ['png', 'webp', 'gif'];
     /**@type {boolean} */ grayscale = true;
     /**@type {boolean} */ mute = true;
@@ -110,7 +110,7 @@ export class Settings {
                                 actionQrSet: null,
                                 memberQrSet: null,
                                 memberList: null,
-                                expression: 'joy',
+                                expression: '',
                                 extensions: ['png', 'webp', 'gif'],
                                 grayscale: true,
                                 mute: true,
@@ -563,7 +563,7 @@ export class Settings {
             slider.value = String(n);
             number.value = String(n);
             this.imageHeightVh = n;
-            this.save(true);
+            this.save();
         };
         slider.addEventListener('input', () => apply(slider.value));
         number.addEventListener('change', () => apply(number.value));

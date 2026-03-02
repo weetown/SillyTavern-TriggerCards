@@ -23,11 +23,14 @@ export let groupId;
 let root;
 /**@type {HTMLElement} */
 let tray;
+/**@type {HTMLElement} */
+let trayRow;
 /**@type {HTMLImageElement[]} */
 let imgs = [];
 /**@type {string[]} */
 let nameList = [];
 let lastCollapsedState;
+let restartPromise = Promise.resolve();
 
 /** Bottom-bar Extensions (wand) menu + main Extensions panel integration **/
 const STTC_IDS = {
@@ -413,7 +416,7 @@ const activate = async(args, members) => {
     settings.memberList = memberList && memberList.length > 0 ? memberList : (args.reset ? undefined : settings.memberList);
     if (settings.memberList && settings.memberList.filter(it=>it).length <= 0) settings.memberList = undefined;
 
-    settings.expression = args.emote ?? (args.reset ? 'joy' : settings.expression) ?? 'joy';
+    settings.expression = args.emote ?? (args.reset ? '' : settings.expression) ?? '';
 
     // Fix: use settings.extensions, not settings.extList
     settings.extensions = extList && extList.length > 0
@@ -428,7 +431,7 @@ const activate = async(args, members) => {
     settings.isEnabled = true;
 
     saveMetadataDebounced();
-    restart();
+    await restart();
 
     let wasActive = settings.isActive;
     if (wasActive) settings.hide();
@@ -468,11 +471,7 @@ const chatChanged = async()=>{
     clearSpriteCache();
 
     loadSettings();
-    if (settings?.isEnabled) {
-        await restart();
-    } else {
-        await end();
-    }
+    await restart();
     syncExtensionsPanelUi();
 };
 eventSource.on(event_types.CHAT_CHANGED, ()=>(chatChanged(),null));
@@ -804,7 +803,7 @@ const updateMembers = async() => {
                     imgs.splice(imgs.indexOf(before), 0, img);
                 } else {
                     log('putting', name, 'at end');
-                    tray?.append(wrap);
+                    trayRow?.append(wrap);
                     imgs.push(img);
                 }
             }
@@ -842,15 +841,23 @@ const updateMembers = async() => {
 
 
 const restart = async()=>{
-    clearSpriteCache();
-    await end();
-    start();
+    restartPromise = restartPromise.then(async () => {
+        clearSpriteCache();
+        await end();
+        if (settings?.isEnabled) start();
+    });
+    return restartPromise;
 };
 const restartDebounced = debounce(restart);
 
 const start = () => {
+    if (!settings?.isEnabled) return;
     const form = document.querySelector('#form_sheld');
     if (!form) return;
+    if (root && root.isConnected) return;
+    for (const stray of document.querySelectorAll('.sttc--root')) {
+        stray.remove();
+    }
 
     root = document.createElement('div'); {
         root.classList.add('sttc--root');
@@ -877,6 +884,9 @@ const start = () => {
                 evt.preventDefault();
                 tray.scrollLeft += evt.deltaY;
             });
+            trayRow = document.createElement('div');
+            trayRow.classList.add('sttc--tray-row');
+            tray.append(trayRow);
             root.append(tray);
         }
 
@@ -892,7 +902,9 @@ const start = () => {
 const end = async () => {
     isRunning = false;
     if (loop) await loop;
+    loop = null;
     nameList = [];
+    trayRow = null;
     tray = null;
     root?.remove();
     root = null;
