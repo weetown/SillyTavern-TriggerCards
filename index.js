@@ -5,7 +5,7 @@ import { SlashCommand } from '../../../slash-commands/SlashCommand.js';
 import { ARGUMENT_TYPE, SlashCommandArgument, SlashCommandNamedArgument } from '../../../slash-commands/SlashCommandArgument.js';
 import { SlashCommandEnumValue } from '../../../slash-commands/SlashCommandEnumValue.js';
 import { SlashCommandParser } from '../../../slash-commands/SlashCommandParser.js';
-import { debounce, delay } from '../../../utils.js';
+import { delay } from '../../../utils.js';
 import { quickReplyApi } from '../../quick-reply/index.js';
 import { Settings } from './src/Settings.js';
 
@@ -23,11 +23,15 @@ export let groupId;
 let root;
 /**@type {HTMLElement} */
 let tray;
+/**@type {HTMLElement} */
+let trayRow;
 /**@type {HTMLImageElement[]} */
 let imgs = [];
 /**@type {string[]} */
 let nameList = [];
 let lastCollapsedState;
+let restartPromise = Promise.resolve();
+let lastTriggerClick = { name: '', time: 0 };
 
 /** Bottom-bar Extensions (wand) menu + main Extensions panel integration **/
 const STTC_IDS = {
@@ -101,8 +105,9 @@ const addExtensionsPanelUi = async () => {
 
         $(document).on('change', `#${STTC_IDS.panelCollapsed}`, (evt) => {
             if (!settings) return;
-            settings.isCollapsed = evt.target.checked;
+            settings.startCollapsed = evt.target.checked;
             saveMetadataDebounced();
+            settings.isCollapsed = evt.target.checked;
             applyCollapsedState(settings.isCollapsed);
             syncExtensionsPanelUi();
         });
@@ -119,7 +124,7 @@ const syncExtensionsPanelUi = () => {
     const toggle = document.getElementById(STTC_IDS.panelEnabled);
     if (toggle) toggle.checked = enabled;
     const collapsedToggle = document.getElementById(STTC_IDS.panelCollapsed);
-    if (collapsedToggle) collapsedToggle.checked = Boolean(settings?.isCollapsed);
+    if (collapsedToggle) collapsedToggle.checked = Boolean(settings?.startCollapsed);
     const status = document.getElementById(STTC_IDS.panelStatus);
     if (status) status.textContent = enabled ? 'Enabled for this chat' : 'Disabled for this chat';
 };
@@ -133,6 +138,55 @@ const applyCollapsedState = (isCollapsed) => {
         toggle.setAttribute('aria-expanded', String(!isCollapsed));
         toggle.setAttribute('title', isCollapsed ? 'Show Trigger Cards' : 'Hide Trigger Cards');
     }
+};
+
+const settingsCloseHandlers = {
+    onKeyDown: null,
+};
+
+const wireSettingsCloseInteractions = () => {
+    if (!settings?.dom) return;
+
+    const teardown = () => {
+        if (settingsCloseHandlers.onKeyDown) {
+            document.removeEventListener('keydown', settingsCloseHandlers.onKeyDown, true);
+            settingsCloseHandlers.onKeyDown = null;
+        }
+    };
+
+    teardown();
+
+    settingsCloseHandlers.onKeyDown = (evt) => {
+        if (!settings?.isActive) return;
+        if (evt.key === 'Escape') {
+            settings.hide();
+            teardown();
+        }
+    };
+
+    document.addEventListener('keydown', settingsCloseHandlers.onKeyDown, true);
+};
+
+const applyRootStyleSettings = () => {
+    if (!root) return;
+    const alignMap = { left:'flex-start', center:'center', right:'flex-end' };
+    root.style.setProperty('--sttc-align', alignMap[settings.align] ?? 'center');
+    root.style.setProperty('--sttc-shape-radius', settings.imageShape === 'circle' ? '999px' : '8px');
+    root.style.setProperty('--sttc-bg', settings.backgroundMode === 'transparent' ? 'transparent' : (settings.backgroundColor ?? '#00000059'));
+    root.style.setProperty('--sttc-image-height', `${Math.min(256, Math.max(48, Number(settings.imageHeightPx) || 94))}px`);
+    root.style.setProperty('--sttc-image-rendering', settings.antiAlias ? 'auto' : 'pixelated');
+    root.style.setProperty('--sttc-card-aspect', settings.cardAspectRatio || 'auto');
+    root.style.setProperty('--sttc-card-gap', `${Math.max(0, Number(settings.cardGapPx) || 6)}px`);
+    root.style.setProperty('--sttc-card-outline', settings.showOutline ? `1px solid ${settings.outlineColor ?? '#ffffff66'}` : 'none');
+    root.style.setProperty('--sttc-card-shadow', settings.showDropShadow ? `drop-shadow(0 0 6px ${settings.shadowColor ?? '#00000080'})` : 'none');
+    root.style.setProperty('--sttc-hover-shift', settings.hoverAnimation ? '-10%' : '0%');
+    root.style.setProperty('--sttc-nametag-opacity', String(Math.max(0, Math.min(1, Number(settings.nametagOpacity) || 0.9))));
+    root.style.setProperty('--sttc-nametag-color', settings.nametagColor ?? '#ffffff');
+    root.style.setProperty('--sttc-nametag-size', `${Math.max(8, Math.min(24, Number(settings.nametagSizePx) || 11))}px`);
+    root.style.setProperty('--sttc-nametag-shadow', settings.nametagShadow ? '0 1px 2px rgba(0,0,0,0.8)' : 'none');
+    root.style.setProperty('--sttc-root-overflow', settings.trayImageMode === 'peek' ? 'visible' : 'hidden');
+    root.style.setProperty('--sttc-tray-overflow-y', settings.trayImageMode === 'peek' ? 'visible' : 'hidden');
+    root.dataset.nametagMode = settings.nametagShowMode ?? 'always';
 };
 
 
@@ -152,6 +206,29 @@ const spriteListCache = new Map(); // name -> { time:number, sprites:any[] }
 const SPRITE_CACHE_TTL = 30_000; // ms (does NOT get cleared on expression change)
 
 const clearSpriteCache = () => spriteListCache.clear();
+
+const TRIGGER_CARDS_EXTENSION_KEY = 'trigger_cards';
+
+const getSpriteOverridesForCharacter = (characterName) => {
+    const context = getContext();
+    const character = context?.characters?.find(c => c?.name === characterName);
+    const ext = character?.data?.extensions?.[TRIGGER_CARDS_EXTENSION_KEY] ?? {};
+    const imageOverrides = ext.imageOverrides ?? {};
+    const spriteOverrides = ext.spriteOverrides ?? {};
+    const merged = { ...imageOverrides };
+    for (const [key, value] of Object.entries(spriteOverrides)) {
+        if (!merged[key]) merged[key] = { type: 'sprite', label: value };
+    }
+    return merged;
+};
+
+const getSpriteFoldersForCard = (characterName, cardKey = null) => {
+    const folders = [];
+    const selectedCostume = cardKey ? settings?.costumes?.[cardKey] : null;
+    if (selectedCostume) folders.push(selectedCostume);
+    if (!folders.includes(characterName)) folders.push(characterName);
+    return folders;
+};
 
 const getSpritesForCharacter = async (name) => {
     const now = Date.now();
@@ -214,23 +291,71 @@ const pickSpriteVariant = (matches, mode = 'first') => {
  * Main resolver used everywhere in the extension.
  * Name may be "Character" or "Character/subfolder".
  */
-const findImage = async (name) => {
-    // 1) Ask ST for list of sprites that exist for this character folder
-    const sprites = await getSpritesForCharacter(name);
+const findImage = async (name, cardKey = null) => {
+    // Resolution order: selected costume folder -> character root folder.
+    const characterName = name.includes('/') ? name.split('/')[0] : name;
+    const folders = getSpriteFoldersForCard(characterName, cardKey);
+
+    if (cardKey) {
+        const overrides = getSpriteOverridesForCharacter(characterName);
+        const override = overrides?.[cardKey];
+        if (override?.type === 'gallery' && override?.path) {
+            return override.path;
+        }
+        const overrideLabel = override?.type === 'sprite' ? override.label : null;
+        if (overrideLabel) {
+            for (const folder of folders) {
+                const sprites = await getSpritesForCharacter(folder);
+                const overrideMatches = sprites.filter(s => String(s.label).toLowerCase() === String(overrideLabel).toLowerCase());
+                if (overrideMatches.length > 0) {
+                    const chosenOverride = pickSpriteVariant(overrideMatches, 'first');
+                    return chosenOverride?.path;
+                }
+            }
+        }
+    }
+
+    const defaultSource = settings.defaultImageSource ?? 'avatar';
+
+    // If avatar default is selected and no explicit per-card override exists, skip expression lookup.
+    if (defaultSource === 'avatar') {
+        const thumb = getAvatarThumb(characterName);
+        if (thumb) return thumb;
+    }
 
     // labels from server are lowercased; normalize ours too
-    const target = String(settings.expression ?? '').toLowerCase();
+    const target = String(settings.expression ?? '').toLowerCase().trim();
+    if ((defaultSource === 'sprite' || defaultSource === 'expressions') && target) {
+        for (const folder of folders) {
+            const sprites = await getSpritesForCharacter(folder);
+            const matches = sprites.filter(s => String(s.label).toLowerCase() === target);
+            if (matches.length > 0) {
+                const chosen = pickSpriteVariant(matches, 'first');
+                return chosen?.path;
+            }
+        }
+    }
 
-    const matches = sprites.filter(s => String(s.label).toLowerCase() === target);
+    // Gallery default source needs explicit per-card selection, so fallback to avatar.
+    if (defaultSource === 'gallery') {
+        const thumb = getAvatarThumb(characterName);
+        if (thumb) return thumb;
+    }
 
-    if (matches.length > 0) {
-        // stable pick; change to 'random' if you want random variants
-        const chosen = pickSpriteVariant(matches, 'first');
-        return chosen?.path;
+    // Fallback expression lookup (legacy behavior for existing configs)
+    if (target) {
+        for (const folder of folders) {
+            const sprites = await getSpritesForCharacter(folder);
+            const matches = sprites.filter(s => String(s.label).toLowerCase() === target);
+            if (matches.length > 0) {
+                const chosen = pickSpriteVariant(matches, 'first');
+                return chosen?.path;
+            }
+        }
     }
 
     // 2) If no expression sprites exist, fallback to avatar thumbnail
-    const thumb = getAvatarThumb(name.includes('/') ? name.split('/')[0] : name);
+    const thumb = getAvatarThumb(characterName);
     if (thumb) return thumb;
 
     // 3) Nothing found
@@ -244,7 +369,14 @@ const findImage = async (name) => {
 
 const loadSettings = ()=>{
     settings = new Settings();
-    settings.onRestart = ()=>restartDebounced();
+    settings.onRestart = ()=>restart();
+    settings.onShow = ()=>wireSettingsCloseInteractions();
+    settings.onHide = ()=>{
+        if (settingsCloseHandlers.onKeyDown) {
+            document.removeEventListener('keydown', settingsCloseHandlers.onKeyDown, true);
+            settingsCloseHandlers.onKeyDown = null;
+        }
+    };
     chat_metadata.triggerCards = settings;
 };
 
@@ -323,14 +455,14 @@ const activate = async(args, members) => {
     settings.memberList = memberList && memberList.length > 0 ? memberList : (args.reset ? undefined : settings.memberList);
     if (settings.memberList && settings.memberList.filter(it=>it).length <= 0) settings.memberList = undefined;
 
-    settings.expression = args.emote ?? (args.reset ? 'joy' : settings.expression) ?? 'joy';
+    settings.expression = args.emote ?? (args.reset ? '' : settings.expression) ?? '';
 
     // Fix: use settings.extensions, not settings.extList
     settings.extensions = extList && extList.length > 0
         ? extList
-        : (args.reset ? ['png', 'webp', 'gif'] : settings.extensions) ?? ['png', 'webp', 'gif'];
+        : (args.reset ? ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp', 'avif'] : settings.extensions) ?? ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp', 'avif'];
 
-    if (settings.extensions && settings.extensions.filter(it=>it).length <= 0) settings.extensions = ['png', 'webp', 'gif'];
+    if (settings.extensions && settings.extensions.filter(it=>it).length <= 0) settings.extensions = ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp', 'avif'];
 
     settings.grayscale = gray ?? (args.reset ? true : settings.grayscale) ?? true;
     settings.mute = mute ?? (args.reset ? true : settings.mute) ?? true;
@@ -338,7 +470,7 @@ const activate = async(args, members) => {
     settings.isEnabled = true;
 
     saveMetadataDebounced();
-    restart();
+    await restart();
 
     let wasActive = settings.isActive;
     if (wasActive) settings.hide();
@@ -378,11 +510,7 @@ const chatChanged = async()=>{
     clearSpriteCache();
 
     loadSettings();
-    if (settings?.isEnabled) {
-        await restart();
-    } else {
-        await end();
-    }
+    await restart();
     syncExtensionsPanelUi();
 };
 eventSource.on(event_types.CHAT_CHANGED, ()=>(chatChanged(),null));
@@ -396,6 +524,15 @@ const handleClick = async (/**@type {MouseEvent}*/evt, /**@type {string}*/fullNa
     evt.preventDefault();
     evt.stopPropagation();
     const [name, ...args] = fullName.split('::');
+
+    const now = Date.now();
+    if (settings.clickBehavior === 'trigger_cancel' && lastTriggerClick.name === fullName && (now - lastTriggerClick.time) < 1500) {
+        try { executeSlashCommands('/abort'); } catch {}
+        try { executeSlashCommands('/cancel'); } catch {}
+        lastTriggerClick = { name: '', time: 0 };
+        return;
+    }
+    lastTriggerClick = { name: fullName, time: now };
 
     if (settings.memberQrSet && args.includes('qr')) {
         try {
@@ -459,6 +596,13 @@ const handleClick = async (/**@type {MouseEvent}*/evt, /**@type {string}*/fullNa
 const handleContext = async(evt, fullName, wrap) => {
     evt.preventDefault();
     evt.stopPropagation();
+    if (settings.rightClickMute) {
+        const [name] = fullName.split('::');
+        const muted = getMuted();
+        const cmd = muted.includes(name) ? `/enable ${name}` : `/disable ${name}`;
+        executeSlashCommands(cmd);
+        return;
+    }
     wrap.classList.add('sttc--hover');
 
     const [name, ...args] = fullName.split('::');
@@ -553,14 +697,11 @@ const handleContext = async(evt, fullName, wrap) => {
                 return;
             }
 
-            // Costumes plugin preview probing (temporary, until moved to ST built-in /costume workflow)
             const urls = await Promise.all(costumes.map(async (costumePath) => {
-                for (const ext of settings.extensions) {
-                    const url = `/characters/${costumePath}/${settings.expression}.${ext}`;
-                    const resp = await fetch(url, { method: 'HEAD', headers: getRequestHeaders() });
-                    if (resp.ok) return url;
-                }
-                return undefined;
+                const sprites = await getSpritesForCharacter(costumePath);
+                const matches = sprites.filter(s => String(s.label).toLowerCase() === String(settings.expression).toLowerCase());
+                const chosen = pickSpriteVariant(matches, 'first');
+                return chosen?.path;
             }));
 
             let i = -1;
@@ -604,27 +745,8 @@ const handleContext = async(evt, fullName, wrap) => {
 };
 
 const handleTitle = async (el, fullName) => {
-    const [name, ...args] = fullName.split('::');
-    let titleParts = [name];
-
-    if (settings.memberQrSet && args.includes('qr')) {
-        const qr = quickReplyApi.getQrByLabel(settings.memberQrSet, fullName);
-        titleParts.push(qr.title || qr.message);
-    } else if (settings.actionQrSet) {
-        const mods = { 'c': 'ctrl', 's': 'shift', 'a': 'alt' };
-        const set = quickReplyApi.getSetByName(settings.actionQrSet);
-        titleParts.push(...set.qrList.map(qr=>`${[...qr.label.split('').map(m=>mods[m]), 'click'].join(' + ')}: ${qr.title ?? ''}`));
-    } else {
-        titleParts.push(
-            'click: trigger',
-            'shift + click: unmute',
-            'alt + click: mute',
-        );
-    }
-
-    titleParts.push('right click to change costume');
-    titleParts.splice(1, 0, '-'.repeat(titleParts.reduce((max,cur)=>Math.max(max,cur.length),0) * 1.2));
-    el.title = titleParts.join('\n');
+    // Deprecated: do not show old instruction tooltips.
+    el.title = '';
 };
 
 const getNames = (present = false)=>{
@@ -645,7 +767,14 @@ const getNames = (present = false)=>{
         const context = getContext();
         const group = context.groups.find(it=>it.id == groupId);
         const members = group.members.map(m=>context.characters.find(c=>c.avatar == m));
-        const names = members.map(it=>it.name);
+        let names = members.map(it=>it.name);
+        if (Array.isArray(settings.manualOrder) && settings.manualOrder.length) {
+            names = [...names].sort((a,b)=>{
+                const ai = settings.manualOrder.indexOf(a);
+                const bi = settings.manualOrder.indexOf(b);
+                return (ai < 0 ? 999 : ai) - (bi < 0 ? 999 : bi);
+            });
+        }
         return names;
     } else {
         return [characters[getContext().characterId]].map(it=>it.name);
@@ -666,6 +795,7 @@ const updateMembers = async() => {
     let extensions;
 
     while (settings?.isEnabled && isRunning) {
+        applyRootStyleSettings();
         if (lastCollapsedState !== settings.isCollapsed) {
             applyCollapsedState(settings.isCollapsed);
             lastCollapsedState = settings.isCollapsed;
@@ -687,26 +817,58 @@ const updateMembers = async() => {
         for (const name of added) {
             const namePart = name.split('::')[0];
 
-            if (settings.costumes?.[namePart]) {
-                executeSlashCommandsWithOptions(`/costume ${settings.costumes[namePart]}`);
+            if (settings.costumes?.[name]) {
+                executeSlashCommandsWithOptions(`/costume ${settings.costumes[name]}`);
             }
 
             nameList.push(name);
 
             const wrap = document.createElement('div'); {
                 wrap.classList.add('sttc--wrapper');
+                wrap.draggable = Boolean(settings.enableDragReorder);
+                wrap.addEventListener('dragstart', ()=>wrap.classList.add('sttc--dragging'));
+                wrap.addEventListener('dragend', ()=>wrap.classList.remove('sttc--dragging'));
+                wrap.addEventListener('dragover', (evt)=>{
+                    if (!settings.enableDragReorder) return;
+                    evt.preventDefault();
+                });
+                wrap.addEventListener('drop', (evt)=>{
+                    if (!settings.enableDragReorder) return;
+                    evt.preventDefault();
+                    const dragging = trayRow?.querySelector('.sttc--wrapper.sttc--dragging');
+                    if (!dragging || dragging === wrap) return;
+                    wrap.insertAdjacentElement('beforebegin', dragging);
+                    settings.manualOrder = [...trayRow.querySelectorAll('.sttc--wrapper .sttc--img')].map(it=>it.getAttribute('data-character')?.split('::')[0]).filter(Boolean);
+                    saveMetadataDebounced();
+                });
                 wrap.addEventListener('click', (evt)=>handleClick(evt, name));
                 wrap.addEventListener('contextmenu', (evt)=>handleContext(evt, name, wrap));
-                wrap.addEventListener('pointerenter', ()=>handleTitle(wrap, name));
+                // Tooltip instructions removed by request.
+
+                const nametag = document.createElement('div'); {
+                    nametag.classList.add('sttc--nametag');
+                    nametag.textContent = namePart;
+                    if (settings.showNametags && settings.nametagPosition === 'above') {
+                        nametag.classList.add('sttc--nametag-above');
+                        wrap.append(nametag);
+                    }
+                }
 
                 const img = document.createElement('img'); {
                     img.classList.add('sttc--img');
                     img.setAttribute('data-character', name);
 
                     // IMPORTANT: Use sprites endpoint for expression images
-                    img.src = await findImage(settings.costumes?.[namePart] ?? namePart) ?? '';
+                    img.src = await findImage(namePart, name) ?? '';
 
                     wrap.append(img);
+                }
+                if (settings.showNametags && settings.nametagPosition !== 'above') {
+                    const nametagBottom = document.createElement('div');
+                    nametagBottom.classList.add('sttc--nametag');
+                    nametagBottom.classList.add('sttc--nametag-below');
+                    nametagBottom.textContent = namePart;
+                    wrap.append(nametagBottom);
                 }
 
                 const before = imgs.find(it=>name.localeCompare(it.getAttribute('data-character')) == -1);
@@ -716,7 +878,7 @@ const updateMembers = async() => {
                     imgs.splice(imgs.indexOf(before), 0, img);
                 } else {
                     log('putting', name, 'at end');
-                    tray?.append(wrap);
+                    trayRow?.append(wrap);
                     imgs.push(img);
                 }
             }
@@ -729,16 +891,16 @@ const updateMembers = async() => {
                 img.closest('.sttc--wrapper').classList.remove('sttc--absent');
             }
 
-            if (settings.mute && muted.indexOf(img.getAttribute('data-character')) == -1) {
-                img.closest('.sttc--wrapper').classList.add('sttc--chatty');
+            if (settings.mute && muted.indexOf(img.getAttribute('data-character').split('::')[0]) > -1) {
+                img.closest('.sttc--wrapper').classList.add('sttc--muted');
             } else {
-                img.closest('.sttc--wrapper').classList.remove('sttc--chatty');
+                img.closest('.sttc--wrapper').classList.remove('sttc--muted');
             }
 
             // We do NOT clear sprite cache on expression change. We just pick a different label from cached list.
             if (expression != settings.expression || extensions != settings.extensions.join(', ')) {
                 const namePart = img.getAttribute('data-character').split('::')[0];
-                img.src = await findImage(settings.costumes?.[namePart] ?? namePart) ?? '';
+                img.src = await findImage(namePart, img.getAttribute('data-character')) ?? '';
             }
         });
 
@@ -754,17 +916,26 @@ const updateMembers = async() => {
 
 
 const restart = async()=>{
-    await end();
-    start();
+    restartPromise = restartPromise.then(async () => {
+        clearSpriteCache();
+        await end();
+        if (settings?.isEnabled) start();
+    });
+    return restartPromise;
 };
-const restartDebounced = debounce(restart);
 
 const start = () => {
+    if (!settings?.isEnabled) return;
     const form = document.querySelector('#form_sheld');
     if (!form) return;
+    if (root && root.isConnected) return;
+    for (const stray of document.querySelectorAll('.sttc--root')) {
+        stray.remove();
+    }
 
     root = document.createElement('div'); {
         root.classList.add('sttc--root');
+        applyRootStyleSettings();
 
         const toggle = document.createElement('button'); {
             toggle.type = 'button';
@@ -787,11 +958,15 @@ const start = () => {
                 evt.preventDefault();
                 tray.scrollLeft += evt.deltaY;
             });
+            trayRow = document.createElement('div');
+            trayRow.classList.add('sttc--tray-row');
+            tray.append(trayRow);
             root.append(tray);
         }
 
         form.prepend(root);
     }
+    settings.isCollapsed = Boolean(settings.startCollapsed);
     applyCollapsedState(settings.isCollapsed);
     lastCollapsedState = settings.isCollapsed;
     isRunning = true;
@@ -801,7 +976,9 @@ const start = () => {
 const end = async () => {
     isRunning = false;
     if (loop) await loop;
+    loop = null;
     nameList = [];
+    trayRow = null;
     tray = null;
     root?.remove();
     root = null;
