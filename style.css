@@ -2,6 +2,19 @@
 .sttc--root {
   --sttc-handle-height: 14px;
   --sttc-tray-height: 100px;
+  --sttc-align: center;
+  --sttc-shape-radius: 8px;
+  --sttc-bg: rgba(0, 0, 0, 0.35);
+  --sttc-image-height: 94px;
+  --sttc-image-rendering: auto;
+  --sttc-card-aspect: auto;
+  --sttc-card-gap: 6px;
+  --sttc-card-outline: none;
+  --sttc-card-shadow: drop-shadow(0 0 6px rgba(0 0 0 / 0.5));
+  --sttc-hover-shift: -10%;
+  --sttc-nametag-opacity: 0.9;
+  --sttc-nametag-color: #fff;
+  --sttc-nametag-size: 11px;
   position: relative;
   width: 100%;
   height: calc(var(--sttc-handle-height) + var(--sttc-tray-height));
@@ -10,9 +23,9 @@
   transform-origin: top center;
   box-sizing: border-box;
   display: flex;
-  justify-content: center;
+  justify-content: stretch;
   align-items: flex-start;
-  overflow: hidden;
+  overflow: var(--sttc-root-overflow, hidden);
   pointer-events: none;
   transition: height 300ms ease;
   contain: layout style;
@@ -49,26 +62,30 @@
 }
 .sttc--tray {
   pointer-events: auto;
-  width: min(100%, 860px);
+  width: 100%;
   min-height: var(--sttc-tray-height);
   max-height: var(--sttc-tray-height);
-  display: flex;
-  flex-direction: row;
-  gap: 6px;
-  align-items: flex-start;
   padding: 6px 12px;
   box-sizing: border-box;
   overflow-x: auto;
-  overflow-y: hidden;
+  overflow-y: var(--sttc-tray-overflow-y, hidden);
   scrollbar-width: none;
-  mask: linear-gradient(90deg, transparent 0%, black 3%, black 97%, transparent 100%);
-  background: rgba(0, 0, 0, 0.35);
+  mask: var(--sttc-tray-mask, linear-gradient(90deg, transparent 0%, black 3%, black 97%, transparent 100%));
+  background: var(--sttc-bg);
   border: 1px solid rgba(255, 255, 255, 0.18);
   border-radius: 14px;
   backdrop-filter: blur(10px);
   transition: transform 300ms ease, opacity 250ms ease;
   transform: translateY(0);
   opacity: 1;
+}
+.sttc--tray-row {
+  min-width: 100%;
+  display: flex;
+  flex-direction: row;
+  justify-content: var(--sttc-align);
+  gap: var(--sttc-card-gap);
+  align-items: flex-start;
 }
 .sttc--root.sttc--collapsed > .sttc--tray {
   transform: translateY(115%);
@@ -78,30 +95,71 @@
 .sttc--tray::-webkit-scrollbar {
   display: none;
 }
-.sttc--tray > .sttc--wrapper.sttc--absent > .sttc--img {
+.sttc--tray-row > .sttc--wrapper.sttc--absent > .sttc--img {
   filter: grayscale(1);
 }
-.sttc--tray > .sttc--wrapper.sttc--chatty {
-  opacity: 1;
-}
-.sttc--tray > .sttc--wrapper:hover,
-.sttc--tray > .sttc--wrapper.sttc--hover {
-  transform: translateY(-10%);
+.sttc--tray-row > .sttc--wrapper:hover,
+.sttc--tray-row > .sttc--wrapper.sttc--hover {
+  transform: translateY(var(--sttc-hover-shift));
   opacity: 1;
 }
 .sttc--wrapper {
-  height: 94px;
-  filter: drop-shadow(0 0 6px rgba(0 0 0 / 0.5));
+  min-height: var(--sttc-image-height);
+  height: var(--sttc-image-height);
+  aspect-ratio: var(--sttc-card-aspect);
+  filter: var(--sttc-card-shadow);
   cursor: pointer;
   opacity: 0.75;
   transition: transform 250ms ease, opacity 250ms ease;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  position: relative;
+  z-index: 1;
 }
 .sttc--wrapper > .sttc--img {
-  height: 100%;
+  width: 100%;
+  height: calc(100% - 1.4em);
   object-fit: contain;
   object-position: top;
+  border-radius: var(--sttc-shape-radius);
+  border: var(--sttc-card-outline);
+  image-rendering: var(--sttc-image-rendering);
   pointer-events: all;
   transition: 400ms;
+}
+.sttc--tray-row > .sttc--wrapper.sttc--muted {
+  opacity: 0.4;
+}
+.sttc--tray-row > .sttc--wrapper.sttc--muted > .sttc--img {
+  filter: grayscale(1);
+}
+.sttc--nametag {
+  line-height: 1.2;
+  text-align: center;
+  color: var(--sttc-nametag-color);
+  opacity: var(--sttc-nametag-opacity);
+  font-size: var(--sttc-nametag-size);
+  text-shadow: var(--sttc-nametag-shadow, 0 1px 2px rgba(0,0,0,0.8));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  position: relative;
+  z-index: 3;
+  pointer-events: none;
+}
+.sttc--nametag-above {
+  margin-bottom: 2px;
+}
+.sttc--nametag-below {
+  margin-top: 2px;
+}
+.sttc--root[data-nametag-mode="hover"] .sttc--nametag {
+  opacity: 0;
+}
+.sttc--root[data-nametag-mode="hover"] .sttc--wrapper:hover .sttc--nametag,
+.sttc--root[data-nametag-mode="hover"] .sttc--wrapper.sttc--hover .sttc--nametag {
+  opacity: var(--sttc-nametag-opacity);
 }
 .sttc--blocker {
   position: fixed;
