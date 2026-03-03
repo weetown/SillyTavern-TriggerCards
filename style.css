@@ -70,7 +70,7 @@
   overflow-x: auto;
   overflow-y: var(--sttc-tray-overflow-y, hidden);
   scrollbar-width: none;
-  mask: linear-gradient(90deg, transparent 0%, black 3%, black 97%, transparent 100%);
+  mask: var(--sttc-tray-mask, linear-gradient(90deg, transparent 0%, black 3%, black 97%, transparent 100%));
   background: var(--sttc-bg);
   border: 1px solid rgba(255, 255, 255, 0.18);
   border-radius: 14px;

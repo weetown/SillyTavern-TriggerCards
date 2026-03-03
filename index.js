@@ -186,6 +186,7 @@ const applyRootStyleSettings = () => {
     root.style.setProperty('--sttc-nametag-shadow', settings.nametagShadow ? '0 1px 2px rgba(0,0,0,0.8)' : 'none');
     root.style.setProperty('--sttc-root-overflow', settings.trayImageMode === 'peek' ? 'visible' : 'hidden');
     root.style.setProperty('--sttc-tray-overflow-y', settings.trayImageMode === 'peek' ? 'visible' : 'hidden');
+    root.style.setProperty('--sttc-tray-mask', settings.trayImageMode === 'peek' ? 'none' : 'linear-gradient(90deg, transparent 0%, black 3%, black 97%, transparent 100%)');
     root.dataset.nametagMode = settings.nametagShowMode ?? 'always';
 };
 
@@ -547,42 +548,26 @@ const handleClick = async (/**@type {MouseEvent}*/evt, /**@type {string}*/fullNa
         if (evt.altKey) modifiers.push('a');
         const mod = modifiers.join('');
 
-        if (settings.actionQrSet) {
-            if (quickReplyApi.listQuickReplies(settings.actionQrSet).includes(mod)) {
-                try {
-                    await quickReplyApi.executeQuickReply(settings.actionQrSet, mod, { name, set:settings.memberQrSet });
-                } catch (ex) {
-                    toastr.error(ex.message);
-                }
-            } else if (settings.memberQrSet) {
-                try {
-                    await quickReplyApi.executeQuickReply(settings.memberQrSet, fullName, { name });
-                } catch (ex) {
-                    toastr.error(ex.message);
-                }
+        let cmd;
+        switch (mod) {
+            case '': {
+                cmd = `/trigger ${name}`;
+                break;
             }
-        } else {
-            let cmd;
-            switch (mod) {
-                case '': {
-                    cmd = `/trigger ${name}`;
-                    break;
-                }
-                case 's': {
-                    cmd = `/enable ${name}`;
-                    break;
-                }
-                case 'a': {
-                    cmd = `/disable ${name}`;
-                    break;
-                }
+            case 's': {
+                cmd = `/enable ${name}`;
+                break;
             }
-            if (cmd) {
-                try {
-                    executeSlashCommands(cmd);
-                } catch (ex) {
-                    toastr.error(ex.message);
-                }
+            case 'a': {
+                cmd = `/disable ${name}`;
+                break;
+            }
+        }
+        if (cmd) {
+            try {
+                executeSlashCommands(cmd);
+            } catch (ex) {
+                toastr.error(ex.message);
             }
         }
     }
@@ -826,7 +811,11 @@ const updateMembers = async() => {
             const wrap = document.createElement('div'); {
                 wrap.classList.add('sttc--wrapper');
                 wrap.draggable = Boolean(settings.enableDragReorder);
-                wrap.addEventListener('dragstart', ()=>wrap.classList.add('sttc--dragging'));
+                wrap.addEventListener('dragstart', (evt)=>{
+                    wrap.classList.add('sttc--dragging');
+                    evt.dataTransfer?.setData('text/plain', name);
+                    evt.dataTransfer?.setDragImage(wrap, 10, 10);
+                });
                 wrap.addEventListener('dragend', ()=>wrap.classList.remove('sttc--dragging'));
                 wrap.addEventListener('dragover', (evt)=>{
                     if (!settings.enableDragReorder) return;

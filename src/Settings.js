@@ -39,7 +39,7 @@ export class Settings {
     /**@type {boolean} */ showDropShadow = true;
     /**@type {string} */ shadowColor = '#00000080';
     /**@type {boolean} */ hoverAnimation = true;
-    /**@type {boolean} */ showActionsSection = false;
+    /**@type {boolean} */ showActionsSection = true;
     /**@type {boolean} */ showMembersSection = false;
     /**@type {'trigger'|'trigger_cancel'} */ clickBehavior = 'trigger_cancel';
     /**@type {boolean} */ rightClickMute = true;
@@ -191,7 +191,7 @@ export class Settings {
                                 showDropShadow: true,
                                 shadowColor: '#00000080',
                                 hoverAnimation: true,
-                                showActionsSection: false,
+                                showActionsSection: true,
                                 showMembersSection: false,
                                 clickBehavior: 'trigger_cancel',
                                 rightClickMute: true,
@@ -217,17 +217,6 @@ export class Settings {
                     }),
                 ],
             }));
-            this.settingList.push(CheckboxSetting.fromProps({ id: 'sttc--showActionsSection',
-                name: 'Show Actions Settings (Advanced)',
-                description: 'Enable advanced Actions settings section.',
-                category: ['General'],
-                initialValue: this.showActionsSection,
-                onChange: (it)=>{
-                    this.showActionsSection = it.value;
-                    this.save();
-                    this.rebuildActiveUi();
-                },
-            }));
             this.settingList.push(CheckboxSetting.fromProps({ id: 'sttc--showMembersSection',
                 name: 'Show Members Settings (Advanced)',
                 description: 'Enable advanced Members settings section.',
@@ -252,18 +241,7 @@ export class Settings {
                 ],
             }));
         }
-        if (this.showActionsSection) { // actions
-            this.settingList.push(SelectSetting.fromProps({ id: 'sttc--actionQrSet',
-                name: 'Click Actions',
-                description: 'Name of a QR Set for click actions, see /tc?',
-                category: ['Actions'],
-                initialValue: this.actionQrSet,
-                optionList: [{ value:'', label:'-- Default Actions --' }, ...quickReplyApi.listSets().map(it=>({ value:it, label:it }))],
-                onChange: (it)=>{
-                    this.actionQrSet = it.value;
-                    this.save();
-                },
-            }));
+        { // actions
             this.settingList.push(SelectSetting.fromProps({ id: 'sttc--clickBehavior',
                 name: 'Click Behavior',
                 description: 'Click to trigger; optional second click can cancel while streaming.',
@@ -928,6 +906,8 @@ export class Settings {
 
             const row = document.createElement('div');
             row.classList.add('sttc--sprite-row');
+            row.setAttribute('data-card-key', cardKey);
+            row.setAttribute('data-preview', preview || '');
 
             const info = document.createElement('div');
             info.classList.add('sttc--sprite-info');
@@ -946,11 +926,6 @@ export class Settings {
             folderHint.textContent = `Folder: ${effectiveFolder}`;
             info.append(title, source, folderHint);
 
-            const img = document.createElement('img');
-            img.classList.add('sttc--sprite-preview');
-            img.src = preview;
-            img.alt = `${cardKey} preview`;
-
             const controls = document.createElement('div');
             controls.classList.add('sttc--sprite-controls');
 
@@ -966,36 +941,32 @@ export class Settings {
             const choose = document.createElement('button');
             choose.type = 'button';
             choose.classList.add('menu_button');
-            choose.textContent = 'Choose image';
+            choose.textContent = 'Upload image';
             choose.addEventListener('click', () => fileInput.click());
 
-            fileInput.addEventListener('change', () => {
+            fileInput.addEventListener('change', async () => {
                 const file = fileInput.files?.[0];
-                fileLabel.textContent = file?.name ?? 'No image selected';
-            });
-
-            const upload = document.createElement('button');
-            upload.type = 'button';
-            upload.classList.add('menu_button');
-            upload.textContent = 'Upload/Replace';
-            upload.addEventListener('click', async () => {
-                const file = fileInput.files?.[0];
-                if (!file) return toastr.warning('Pick an image first.');
+                fileLabel.textContent = file ? `Uploading ${file.name}...` : 'No image selected';
+                if (!file) return;
                 try {
                     const response = await this.uploadSpriteWithFallback(effectiveFolder, spriteName, file);
                     if (!response.ok) {
                         const details = (await response.text()).trim();
                         toastr.error(`Upload failed (${response.status}): ${(details || 'No server details').slice(0, 300)}`);
+                        fileLabel.textContent = file.name;
                         return;
                     }
                     const next = { ...imageOverrides, [cardKey]: { type: 'sprite', label: spriteName } };
                     await this.saveCharacterExtensions(characterName, { ...extension, imageOverrides: next, spriteOverrides: undefined });
                     this.save();
+                    toastr.success('Image uploaded and applied.');
                     await this.renderSpriteRows(content, characterName);
                 } catch (ex) {
                     toastr.error(`Upload failed: ${ex?.message ?? String(ex)}`);
+                    fileLabel.textContent = file.name;
                 }
             });
+
 
             const galleryBtn = document.createElement('button');
             galleryBtn.type = 'button';
@@ -1028,14 +999,6 @@ export class Settings {
                 row.append(picker);
             });
 
-            const cropBtn = document.createElement('button');
-            cropBtn.type = 'button';
-            cropBtn.classList.add('menu_button');
-            cropBtn.textContent = 'Crop → Sprite copy';
-            cropBtn.addEventListener('click', async () => {
-                toastr.info('Crop flow placeholder: use Gallery modal + Use image for now.');
-            });
-
             const remove = document.createElement('button');
             remove.type = 'button';
             remove.classList.add('menu_button');
@@ -1060,8 +1023,8 @@ export class Settings {
                 await this.renderSpriteRows(content, characterName);
             });
 
-            controls.append(fileInput, choose, fileLabel, upload, galleryBtn, cropBtn, remove);
-            row.append(img, info, controls);
+            controls.append(fileInput, choose, fileLabel, galleryBtn, remove);
+            row.append(info, controls);
             content.append(row);
         }
     }
@@ -1111,9 +1074,14 @@ export class Settings {
         content.addEventListener('click', (evt)=>{
             const row = evt.target.closest('.sttc--sprite-row');
             if (!row) return;
-            const img = row.querySelector('.sttc--sprite-preview');
-            previewImg.src = img?.src ?? '';
-            previewLabel.textContent = row.querySelector('.sttc--sprite-name')?.textContent ?? 'Preview';
+            const name = row.querySelector('.sttc--sprite-name')?.textContent ?? 'Preview';
+            previewLabel.textContent = name;
+            const card = row.getAttribute('data-card-key');
+            const ext = this.getCharacterExtensions(this.spriteManagerCharacter);
+            const ov = this.getImageOverrides(ext)[card];
+            if (ov?.type === 'gallery') previewImg.src = ov.path;
+            else if (ov?.type === 'sprite') previewImg.src = row.getAttribute('data-preview') || '';
+            else previewImg.src = row.getAttribute('data-preview') || '';
         });
 
         wrap.append(preview, selectLabel, select, content);
