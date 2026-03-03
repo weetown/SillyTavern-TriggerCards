@@ -887,7 +887,7 @@ export class Settings {
             const spriteName = `tc_${this.safeKey(cardKey)}`;
             const override = imageOverrides[cardKey];
             const activeLabel = (override?.type === 'sprite' ? override.label : null) ?? String(this.expression ?? '').toLowerCase();
-            const targets = this.getFolderTargetsForCard(characterName, cardKey, null);
+            const targets = [characterName];
             let preview = '';
             let effectiveFolder = targets[0] ?? characterName;
             if (override?.type === 'gallery' && override.path) {
@@ -931,14 +931,6 @@ export class Settings {
 
             const controls = document.createElement('div');
             controls.classList.add('sttc--sprite-controls');
-
-            const sourceSelect = document.createElement('select');
-            sourceSelect.classList.add('text_pole');
-            sourceSelect.innerHTML = `
-                <option value="sprite">Sprite</option>
-                <option value="gallery">Gallery</option>
-            `;
-            sourceSelect.value = override?.type === 'gallery' ? 'gallery' : 'sprite';
 
             const fileInput = document.createElement('input');
             fileInput.type = 'file';
@@ -1046,7 +1038,7 @@ export class Settings {
                 await this.renderSpriteRows(content, characterName);
             });
 
-            controls.append(sourceSelect, fileInput, choose, fileLabel, upload, galleryBtn, cropBtn, remove);
+            controls.append(fileInput, choose, fileLabel, upload, galleryBtn, cropBtn, remove);
             row.append(img, info, controls);
             content.append(row);
         }
@@ -1066,26 +1058,6 @@ export class Settings {
         previewLabel.classList.add('sttc--sprite-field-label');
         previewLabel.textContent = 'Select a card row to preview';
         preview.append(previewImg, previewLabel);
-
-        const sourceWrap = document.createElement('div');
-        sourceWrap.classList.add('sttc--sprite-folder-wrap');
-        const sourceLabel = document.createElement('div');
-        sourceLabel.classList.add('sttc--sprite-field-label');
-        sourceLabel.textContent = 'Default image source';
-        const sourceSelect = document.createElement('select');
-        sourceSelect.classList.add('text_pole');
-        sourceSelect.innerHTML = `
-            <option value="avatar">Avatar (fallback)</option>
-            <option value="sprite">Upload sprite</option>
-            <option value="gallery">Gallery</option>
-            <option value="expressions" disabled>Expressions (disabled)</option>
-        `;
-        sourceSelect.value = this.defaultImageSource ?? 'avatar';
-        sourceSelect.addEventListener('change', ()=>{
-            this.defaultImageSource = sourceSelect.value;
-            this.save();
-        });
-        sourceWrap.append(sourceLabel, sourceSelect);
 
         const select = document.createElement('select');
         select.classList.add('text_pole');
@@ -1122,7 +1094,7 @@ export class Settings {
             previewLabel.textContent = row.querySelector('.sttc--sprite-name')?.textContent ?? 'Preview';
         });
 
-        wrap.append(preview, selectLabel, select, sourceWrap, content);
+        wrap.append(preview, selectLabel, select, content);
         this.renderSpriteRows(content, this.spriteManagerCharacter);
         return wrap;
     }
