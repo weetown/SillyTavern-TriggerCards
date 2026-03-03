@@ -183,6 +183,10 @@ const applyRootStyleSettings = () => {
     root.style.setProperty('--sttc-nametag-opacity', String(Math.max(0, Math.min(1, Number(settings.nametagOpacity) || 0.9))));
     root.style.setProperty('--sttc-nametag-color', settings.nametagColor ?? '#ffffff');
     root.style.setProperty('--sttc-nametag-size', `${Math.max(8, Math.min(24, Number(settings.nametagSizePx) || 11))}px`);
+    root.style.setProperty('--sttc-nametag-shadow', settings.nametagShadow ? '0 1px 2px rgba(0,0,0,0.8)' : 'none');
+    root.style.setProperty('--sttc-root-overflow', settings.trayImageMode === 'peek' ? 'visible' : 'hidden');
+    root.style.setProperty('--sttc-tray-overflow-y', settings.trayImageMode === 'peek' ? 'visible' : 'hidden');
+    root.dataset.nametagMode = settings.nametagShowMode ?? 'always';
 };
 
 
@@ -523,7 +527,8 @@ const handleClick = async (/**@type {MouseEvent}*/evt, /**@type {string}*/fullNa
 
     const now = Date.now();
     if (settings.clickBehavior === 'trigger_cancel' && lastTriggerClick.name === fullName && (now - lastTriggerClick.time) < 1500) {
-        executeSlashCommands('/cancel');
+        try { executeSlashCommands('/abort'); } catch {}
+        try { executeSlashCommands('/cancel'); } catch {}
         lastTriggerClick = { name: '', time: 0 };
         return;
     }
@@ -740,27 +745,8 @@ const handleContext = async(evt, fullName, wrap) => {
 };
 
 const handleTitle = async (el, fullName) => {
-    const [name, ...args] = fullName.split('::');
-    let titleParts = [name];
-
-    if (settings.memberQrSet && args.includes('qr')) {
-        const qr = quickReplyApi.getQrByLabel(settings.memberQrSet, fullName);
-        titleParts.push(qr.title || qr.message);
-    } else if (settings.actionQrSet) {
-        const mods = { 'c': 'ctrl', 's': 'shift', 'a': 'alt' };
-        const set = quickReplyApi.getSetByName(settings.actionQrSet);
-        titleParts.push(...set.qrList.map(qr=>`${[...qr.label.split('').map(m=>mods[m]), 'click'].join(' + ')}: ${qr.title ?? ''}`));
-    } else {
-        titleParts.push(
-            'click: trigger',
-            'shift + click: unmute',
-            'alt + click: mute',
-        );
-    }
-
-    titleParts.push('right click to change costume');
-    titleParts.splice(1, 0, '-'.repeat(titleParts.reduce((max,cur)=>Math.max(max,cur.length),0) * 1.2));
-    el.title = titleParts.join('\n');
+    // Deprecated: do not show old instruction tooltips.
+    el.title = '';
 };
 
 const getNames = (present = false)=>{
@@ -857,12 +843,15 @@ const updateMembers = async() => {
                 });
                 wrap.addEventListener('click', (evt)=>handleClick(evt, name));
                 wrap.addEventListener('contextmenu', (evt)=>handleContext(evt, name, wrap));
-                wrap.addEventListener('pointerenter', ()=>handleTitle(wrap, name));
+                // Tooltip instructions removed by request.
 
                 const nametag = document.createElement('div'); {
                     nametag.classList.add('sttc--nametag');
                     nametag.textContent = namePart;
-                    if (settings.showNametags && settings.nametagPosition === 'above') wrap.append(nametag);
+                    if (settings.showNametags && settings.nametagPosition === 'above') {
+                        nametag.classList.add('sttc--nametag-above');
+                        wrap.append(nametag);
+                    }
                 }
 
                 const img = document.createElement('img'); {
@@ -877,6 +866,7 @@ const updateMembers = async() => {
                 if (settings.showNametags && settings.nametagPosition !== 'above') {
                     const nametagBottom = document.createElement('div');
                     nametagBottom.classList.add('sttc--nametag');
+                    nametagBottom.classList.add('sttc--nametag-below');
                     nametagBottom.textContent = namePart;
                     wrap.append(nametagBottom);
                 }

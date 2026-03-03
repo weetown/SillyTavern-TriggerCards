@@ -52,6 +52,8 @@ export class Settings {
     /**@type {number} */ nametagOpacity = 0.9;
     /**@type {number} */ nametagSizePx = 11;
     /**@type {boolean} */ nametagShadow = true;
+    /**@type {'always'|'hover'} */ nametagShowMode = 'always';
+    /**@type {'contain'|'peek'} */ trayImageMode = 'contain';
     /**@type {'sprite'|'gallery'|'expressions'|'avatar'} */ defaultImageSource = 'avatar';
     /**@type {string|null} */ spriteManagerCardKey = null;
 
@@ -119,6 +121,8 @@ export class Settings {
             nametagOpacity: this.nametagOpacity,
             nametagSizePx: this.nametagSizePx,
             nametagShadow: this.nametagShadow,
+            nametagShowMode: this.nametagShowMode,
+            trayImageMode: this.trayImageMode,
             defaultImageSource: this.defaultImageSource,
             manualOrder: this.manualOrder,
         };
@@ -200,6 +204,8 @@ export class Settings {
                                 nametagOpacity: 0.9,
                                 nametagSizePx: 11,
                                 nametagShadow: true,
+                                nametagShowMode: 'always',
+                                trayImageMode: 'contain',
                                 defaultImageSource: 'avatar',
                                 manualOrder: [],
                             });
@@ -423,7 +429,7 @@ export class Settings {
             this.settingList.push(SelectSetting.fromProps({ id: 'sttc--bgmode',
                 name: 'Background Mode',
                 description: 'Tray background mode.',
-                category: ['Layout'],
+                category: ['Layout', 'Tray'],
                 initialValue: this.backgroundMode,
                 optionList: [
                     { value:'solid', label:'Solid' },
@@ -437,7 +443,7 @@ export class Settings {
             this.settingList.push(ColorSetting.fromProps({ id: 'sttc--bgcolor',
                 name: 'Background Color',
                 description: 'Solid background color used when background mode is solid.',
-                category: ['Layout'],
+                category: ['Layout', 'Tray'],
                 initialValue: this.backgroundColor,
                 onChange: (it)=>{
                     this.backgroundColor = it.value;
@@ -494,21 +500,37 @@ export class Settings {
             this.settingList.push(CheckboxSetting.fromProps({ id: 'sttc--hoverAnimation',
                 name: 'Hover Animation',
                 description: 'Enable card lift animation on hover.',
-                category: ['Layout'],
+                category: ['Layout', 'Tray'],
                 initialValue: this.hoverAnimation,
                 onChange: (it)=>{ this.hoverAnimation = it.value; this.save(); },
+            }));
+            this.settingList.push(SelectSetting.fromProps({ id: 'sttc--trayImageMode',
+                name: 'Tray Image Mode',
+                description: 'Contain images inside tray or allow them to peek out above the tray.',
+                category: ['Layout', 'Tray'],
+                initialValue: this.trayImageMode,
+                optionList: [{ value:'contain', label:'Contain' }, { value:'peek', label:'Peek out' }],
+                onChange: (it)=>{ this.trayImageMode = it.value; this.save(); },
             }));
             this.settingList.push(CheckboxSetting.fromProps({ id: 'sttc--showNametags',
                 name: 'Show Nametags',
                 description: 'Display character name labels on cards.',
-                category: ['Layout'],
+                category: ['Layout', 'Nametags'],
                 initialValue: this.showNametags,
                 onChange: (it)=>{ this.showNametags = it.value; this.save(); },
+            }));
+            this.settingList.push(SelectSetting.fromProps({ id: 'sttc--nametagShowMode',
+                name: 'Nametag Visibility',
+                description: 'Always show nametags or show only on hover.',
+                category: ['Layout', 'Nametags'],
+                initialValue: this.nametagShowMode,
+                optionList: [{ value:'always', label:'Always' }, { value:'hover', label:'On hover' }],
+                onChange: (it)=>{ this.nametagShowMode = it.value; this.save(); },
             }));
             this.settingList.push(SelectSetting.fromProps({ id: 'sttc--nametagPosition',
                 name: 'Nametag Position',
                 description: 'Place nametag above or below card.',
-                category: ['Layout'],
+                category: ['Layout', 'Nametags'],
                 initialValue: this.nametagPosition,
                 optionList: [{value:'above',label:'Above'},{value:'below',label:'Below'}],
                 onChange: (it)=>{ this.nametagPosition = it.value; this.save(); },
@@ -516,7 +538,7 @@ export class Settings {
             this.settingList.push(ColorSetting.fromProps({ id: 'sttc--nametagColor',
                 name: 'Nametag Color',
                 description: 'Nametag text color.',
-                category: ['Layout'],
+                category: ['Layout', 'Nametags'],
                 initialValue: this.nametagColor,
                 onChange: (it)=>{ this.nametagColor = it.value; this.save(); },
             }));
@@ -524,7 +546,7 @@ export class Settings {
                 id: 'sttc--nametagSize',
                 name: 'Nametag Size (px)',
                 description: 'Text size for nametags.',
-                category: ['Layout'],
+                category: ['Layout', 'Nametags'],
                 renderCallback: () => this.renderRangeControl(8, 24, 1, this.nametagSizePx, (v)=>{ this.nametagSizePx = v; this.save(); }),
                 getValueCallback: () => this.nametagSizePx,
                 setValueCallback: (value) => { this.nametagSizePx = value; },
@@ -533,7 +555,7 @@ export class Settings {
                 id: 'sttc--nametagOpacity',
                 name: 'Nametag Opacity',
                 description: 'Opacity for nametag text.',
-                category: ['Layout'],
+                category: ['Layout', 'Nametags'],
                 renderCallback: () => this.renderRangeControl(0, 1, 0.05, this.nametagOpacity, (v)=>{ this.nametagOpacity = v; this.save(); }),
                 getValueCallback: () => this.nametagOpacity,
                 setValueCallback: (value) => { this.nametagOpacity = value; },
