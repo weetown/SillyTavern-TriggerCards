@@ -25,7 +25,7 @@
   display: flex;
   justify-content: stretch;
   align-items: flex-start;
-  overflow: var(--sttc-root-overflow, hidden);
+  overflow: hidden;
   pointer-events: none;
   transition: height 300ms ease;
   contain: layout style;
@@ -68,9 +68,9 @@
   padding: 6px 12px;
   box-sizing: border-box;
   overflow-x: auto;
-  overflow-y: var(--sttc-tray-overflow-y, hidden);
+  overflow-y: hidden;
   scrollbar-width: none;
-  mask: var(--sttc-tray-mask, linear-gradient(90deg, transparent 0%, black 3%, black 97%, transparent 100%));
+  mask: linear-gradient(90deg, transparent 0%, black 3%, black 97%, transparent 100%);
   background: var(--sttc-bg);
   border: 1px solid rgba(255, 255, 255, 0.18);
   border-radius: 14px;
@@ -86,6 +86,12 @@
   justify-content: var(--sttc-align);
   gap: var(--sttc-card-gap);
   align-items: flex-start;
+  padding-top: 0;
+}
+
+/* Tray image mode only affects card positioning, not tray chrome */
+.sttc--root[data-tray-image-mode="peek"] .sttc--tray-row > .sttc--wrapper {
+  margin-top: -14px;
 }
 .sttc--root.sttc--collapsed > .sttc--tray {
   transform: translateY(115%);

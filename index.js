@@ -184,10 +184,8 @@ const applyRootStyleSettings = () => {
     root.style.setProperty('--sttc-nametag-color', settings.nametagColor ?? '#ffffff');
     root.style.setProperty('--sttc-nametag-size', `${Math.max(8, Math.min(24, Number(settings.nametagSizePx) || 11))}px`);
     root.style.setProperty('--sttc-nametag-shadow', settings.nametagShadow ? '0 1px 2px rgba(0,0,0,0.8)' : 'none');
-    root.style.setProperty('--sttc-root-overflow', settings.trayImageMode === 'peek' ? 'visible' : 'hidden');
-    root.style.setProperty('--sttc-tray-overflow-y', settings.trayImageMode === 'peek' ? 'visible' : 'hidden');
-    root.style.setProperty('--sttc-tray-mask', settings.trayImageMode === 'peek' ? 'none' : 'linear-gradient(90deg, transparent 0%, black 3%, black 97%, transparent 100%)');
     root.dataset.nametagMode = settings.nametagShowMode ?? 'always';
+    root.dataset.trayImageMode = settings.trayImageMode ?? 'contain';
 };
 
 
